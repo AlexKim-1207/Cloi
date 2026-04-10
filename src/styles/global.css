@@ -1,0 +1,96 @@
+/* 웨어고 글로벌 스타일 - 토스 미니앱 최적화 */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:root {
+  --toss-blue: #0064FF;
+  --toss-blue-light: #E8F0FF;
+  --toss-gray-100: #F9FAFB;
+  --toss-gray-200: #F2F4F6;
+  --toss-gray-400: #C5CDD4;
+  --toss-gray-600: #778088;
+  --toss-gray-900: #191F28;
+  --toss-red: #F04452;
+  --toss-green: #00C471;
+  --border-radius: 16px;
+  --border-radius-sm: 10px;
+  --shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.10);
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', sans-serif;
+  font-size: 16px;
+  color: var(--toss-gray-900);
+  background: #fff;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  height: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  position: relative;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+/* 토스 스타일 버튼 */
+.btn-primary {
+  width: 100%;
+  height: 54px;
+  background: var(--toss-blue);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+  border-radius: var(--border-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s;
+}
+
+.btn-primary:active {
+  opacity: 0.85;
+}
+
+.btn-primary:disabled {
+  background: var(--toss-gray-400);
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  width: 100%;
+  height: 54px;
+  background: var(--toss-gray-200);
+  color: var(--toss-gray-900);
+  font-size: 17px;
+  font-weight: 600;
+  border-radius: var(--border-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s;
+}
+
+.btn-secondary:active {
+  opacity: 0.85;
+}
