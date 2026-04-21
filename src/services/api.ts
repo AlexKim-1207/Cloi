@@ -1,10 +1,33 @@
-import type { AnalysisKeywords, SearchResult } from '../types';
+import type { CategoryAnalysisResult, CategorySearchResult, SearchResult } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+// localhost이면 개발서버(3001), 그 외엔 Cloudflare Workers 직접 호출
+function getApiBase() {
+  if (typeof window === 'undefined') return '';
 
-// Vite 프록시를 통해 /api로 요청 → 백엔드에서 처리 (API 키는 서버에만 존재)
+  const envBase = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (window.location.hostname === 'localhost') {
+    return envBase || 'http://localhost:3001';
+  }
 
-export async function analyzeImage(imageBase64: string, mimeType: string): Promise<AnalysisKeywords> {
+  return envBase && envBase !== '__PRODUCTION__' ? envBase : '';
+}
+
+const API_BASE = getApiBase();
+
+// ─── 분석 결과 캐시 (세션 내 동일 이미지/URL 재호출 방지) ──────────────────────
+const analysisCache = new Map<string, CategoryAnalysisResult>();
+
+// base64 전체를 키로 쓰면 메모리 낭비 → 길이 + 앞뒤 64자로 실질적 유일 키 생성
+function imageCacheKey(base64: string): string {
+  return `${base64.length}|${base64.slice(0, 64)}|${base64.slice(-64)}`;
+}
+
+export async function analyzeImage(imageBase64: string, mimeType: string): Promise<CategoryAnalysisResult> {
+  const cacheKey = `img:${imageCacheKey(imageBase64)}`;
+  if (analysisCache.has(cacheKey)) {
+    return analysisCache.get(cacheKey)!;
+  }
+
   const res = await fetch(`${API_BASE}/api/analyze`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -13,32 +36,39 @@ export async function analyzeImage(imageBase64: string, mimeType: string): Promi
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `분석 실패 (${res.status})`);
+    throw Object.assign(new Error(err.message || `분석 실패 (${res.status})`), { code: err.code });
   }
 
-  return res.json();
+  const data: CategoryAnalysisResult = await res.json();
+  analysisCache.set(cacheKey, data);
+  return data;
 }
 
-export async function analyzeImageUrl(imageUrl: string): Promise<AnalysisKeywords> {
-  const res = await fetch(`${API_BASE}/api/analyze-url`, {
+// 카테고리별 병렬 검색
+export async function searchByCategories(
+  categories: CategoryAnalysisResult['categories'],
+): Promise<CategorySearchResult[]> {
+  const res = await fetch(`${API_BASE}/api/search/categories`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ imageUrl }),
+    body: JSON.stringify({ categories }),
   });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || `분석 실패 (${res.status})`);
+    throw new Error(err.message || `카테고리 검색 실패 (${res.status})`);
   }
 
-  return res.json();
+  const data: { results: CategorySearchResult[] } = await res.json();
+  return data.results;
 }
 
-export async function searchProducts(query: string, keywords: string[]): Promise<SearchResult> {
+// 단일 검색 (더 보기용)
+export async function searchProducts(query: string, keywords: string[], start = 1): Promise<SearchResult> {
   const res = await fetch(`${API_BASE}/api/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, keywords }),
+    body: JSON.stringify({ query, keywords, start }),
   });
 
   if (!res.ok) {
