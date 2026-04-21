@@ -1,4 +1,4 @@
-/* 웨어고 글로벌 스타일 - 토스 미니앱 최적화 */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
 
 * {
   box-sizing: border-box;
@@ -8,44 +8,67 @@
 }
 
 :root {
-  --toss-blue: #0064FF;
-  --toss-blue-light: #E8F0FF;
-  --toss-gray-100: #F9FAFB;
-  --toss-gray-200: #F2F4F6;
-  --toss-gray-400: #C5CDD4;
-  --toss-gray-600: #778088;
-  --toss-gray-900: #191F28;
-  --toss-red: #F04452;
-  --toss-green: #00C471;
-  --border-radius: 16px;
-  --border-radius-sm: 10px;
-  --shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
-  --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.10);
+  --cloi-bg: #f5eee4;
+  --cloi-bg-soft: #efe4d7;
+  --cloi-surface: #fffaf4;
+  --cloi-surface-strong: #f6ede2;
+  --cloi-line: #e5d8ca;
+  --cloi-text: #2c241f;
+  --cloi-text-soft: #8c7c71;
+  --cloi-text-muted: #b6a89c;
+  --cloi-rose: #c3849a;
+  --cloi-rose-strong: #aa6d82;
+  --cloi-rose-soft: #f1d9e3;
+  --cloi-danger: #c55b63;
+  --cloi-shadow: 0 18px 50px rgba(111, 84, 67, 0.12);
+  --cloi-card-shadow: 0 10px 30px rgba(92, 68, 55, 0.09);
+  --radius-lg: 24px;
+  --radius-md: 18px;
+  --radius-sm: 14px;
 }
 
-html, body {
-  height: 100%;
+html,
+body,
+#root {
   width: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', sans-serif;
-  font-size: 16px;
-  color: var(--toss-gray-900);
-  background: #fff;
-  overflow-x: hidden;
+  height: 100%;
+}
+
+html,
+body {
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Noto Sans KR', sans-serif;
+  color: var(--cloi-text);
+  background:
+    radial-gradient(circle at top, #fff7f0 0%, rgba(255, 247, 240, 0) 36%),
+    linear-gradient(180deg, #efe2d4 0%, #e5d6c5 100%);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
-  height: 100%;
   max-width: 480px;
   margin: 0 auto;
   position: relative;
+  background: var(--cloi-bg);
+  box-shadow: var(--cloi-shadow);
+  overflow: hidden;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
 }
 
 button {
-  cursor: pointer;
-  border: none;
+  border: 0;
   background: none;
-  font-family: inherit;
+  cursor: pointer;
+  color: inherit;
 }
 
 img {
@@ -53,44 +76,130 @@ img {
   max-width: 100%;
 }
 
-/* 토스 스타일 버튼 */
-.btn-primary {
+a {
+  color: inherit;
+}
+
+.app-shell {
+  height: 100%;
+  background:
+    radial-gradient(circle at top right, rgba(195, 132, 154, 0.14), rgba(195, 132, 154, 0) 32%),
+    linear-gradient(180deg, #f7f0e7 0%, #f1e7db 100%);
+}
+
+.screen-scroll {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.screen-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.btn-primary,
+.btn-secondary {
   width: 100%;
-  height: 54px;
-  background: var(--toss-blue);
-  color: #fff;
-  font-size: 17px;
-  font-weight: 600;
-  border-radius: var(--border-radius-sm);
-  display: flex;
+  min-height: 56px;
+  border-radius: 16px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: opacity 0.15s;
+  gap: 8px;
+  padding: 14px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease;
 }
 
-.btn-primary:active {
-  opacity: 0.85;
-}
-
-.btn-primary:disabled {
-  background: var(--toss-gray-400);
-  cursor: not-allowed;
+.btn-primary {
+  color: #fffdfb;
+  background: linear-gradient(135deg, var(--cloi-rose) 0%, var(--cloi-rose-strong) 100%);
+  box-shadow: 0 14px 28px rgba(170, 109, 130, 0.24);
 }
 
 .btn-secondary {
-  width: 100%;
-  height: 54px;
-  background: var(--toss-gray-200);
-  color: var(--toss-gray-900);
-  font-size: 17px;
-  font-weight: 600;
-  border-radius: var(--border-radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: opacity 0.15s;
+  color: var(--cloi-text);
+  background: rgba(255, 250, 244, 0.86);
+  border: 1px solid var(--cloi-line);
 }
 
-.btn-secondary:active {
-  opacity: 0.85;
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-primary:not(:disabled):active,
+.btn-secondary:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.icon-button {
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: rgba(255, 250, 244, 0.82);
+  border: 1px solid rgba(229, 216, 202, 0.9);
+  box-shadow: 0 8px 20px rgba(110, 90, 78, 0.08);
+}
+
+.capsule-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.capsule-row::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid var(--cloi-line);
+  background: rgba(255, 250, 244, 0.86);
+  color: var(--cloi-text-soft);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chip-active {
+  border-color: rgba(170, 109, 130, 0.22);
+  background: var(--cloi-rose-soft);
+  color: var(--cloi-rose-strong);
+}
+
+.section-card {
+  background: rgba(255, 250, 244, 0.84);
+  border: 1px solid rgba(229, 216, 202, 0.9);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--cloi-card-shadow);
+  backdrop-filter: blur(12px);
+}
+
+.serif-brand {
+  font-family: 'Cormorant Garamond', serif;
+}
+
+.fade-rise {
+  animation: fade-rise 0.35s ease;
+}
+
+@keyframes fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

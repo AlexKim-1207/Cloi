@@ -1,51 +1,88 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import ImageUploader from '../components/ImageUploader';
-import ClipboardBanner from '../components/ClipboardBanner';
-import { analyzeImage, analyzeImageUrl, searchProducts } from '../services/api';
-import type { Product, LoadingStep, AppError } from '../types';
+import { analyzeImage, searchByCategories } from '../services/api';
+import type {
+  AppError,
+  CategoryAnalysisResult,
+  CategorySearchResult,
+  HistoryItem,
+  LoadingStep,
+} from '../types';
 
 interface HomePageProps {
   onLoadingStart: (step: LoadingStep) => void;
-  onResult: (products: Product[], keywords: string[]) => void;
+  onResult: (categoryResults: CategorySearchResult[], description: string) => void;
   onError: (error: AppError) => void;
+  onSetRetry: (fn: () => void) => void;
+  history: HistoryItem[];
+  onHistorySelect: (item: HistoryItem) => void;
+  onNavigateFavorites: () => void;
+  favoritesCount: number;
 }
 
-export default function HomePage({ onLoadingStart, onResult, onError }: HomePageProps) {
-  const [instagramUrl, setInstagramUrl] = useState('');
+function HeartIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#c3849a" strokeWidth="1.8">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+    </svg>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="#b6a89c" strokeWidth="1.8">
+      <path d="M1 1l5 5-5 5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export default function HomePage({
+  onLoadingStart,
+  onResult,
+  onError,
+  onSetRetry,
+  history,
+  onHistorySelect,
+  onNavigateFavorites,
+  favoritesCount,
+}: HomePageProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageData, setImageData] = useState<{ base64: string; mimeType: string } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const isAnalyzingRef = useRef(false);
 
   const handleImageSelected = (base64: string, mimeType: string, preview: string) => {
     setImagePreview(preview);
     setImageData({ base64, mimeType });
-    setInstagramUrl(''); // 이미지 선택 시 URL 초기화
   };
 
-  const runAnalysis = async (
-    getKeywords: () => Promise<{ keywords: string[]; searchQuery: string }>,
-  ) => {
+  const runAnalysis = async (getAnalysis: () => Promise<CategoryAnalysisResult>) => {
+    if (isAnalyzingRef.current) return;
+    isAnalyzingRef.current = true;
+    onSetRetry(() => runAnalysis(getAnalysis));
+
     setIsAnalyzing(true);
     try {
       onLoadingStart('analyzing');
-      const analysis = await getKeywords();
+      const analysis = await getAnalysis();
 
       onLoadingStart('searching');
-      const result = await searchProducts(analysis.searchQuery, analysis.keywords);
+      const categoryResults = await searchByCategories(analysis.categories);
 
-      if (result.products.length === 0) {
+      if (categoryResults.length === 0) {
         onError({
-          message: '입력한 이미지와 비슷한 상품을 찾지 못했어요. 다른 이미지로 시도해 보세요.',
+          message: '입력한 이미지와 비슷한 상품을 찾지 못했어요. 다른 이미지를 다시 시도해 주세요.',
           code: 'NO_RESULTS',
           retryable: true,
         });
       } else {
-        onResult(result.products, analysis.keywords);
+        onResult(categoryResults, analysis.description);
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '알 수 없는 오류가 발생했어요';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했어요.';
       onError({ message, retryable: true });
     } finally {
+      isAnalyzingRef.current = false;
       setIsAnalyzing(false);
     }
   };
@@ -55,158 +92,193 @@ export default function HomePage({ onLoadingStart, onResult, onError }: HomePage
     runAnalysis(() => analyzeImage(imageData.base64, imageData.mimeType));
   };
 
-  const handleUrlAnalyze = () => {
-    const trimmed = instagramUrl.trim();
-    if (!trimmed) return;
-
-    if (!trimmed.includes('instagram.com')) {
-      onError({
-        message: 'Instagram 링크를 입력해 주세요. (예: https://www.instagram.com/p/...)',
-        code: 'INVALID_URL',
-        retryable: false,
-      });
-      return;
-    }
-
-    runAnalysis(() => analyzeImageUrl(trimmed));
-  };
-
-  const handleClipboardDetected = (url: string) => {
-    setInstagramUrl(url);
-  };
-
-  const canAnalyzeImage = !!imageData && !isAnalyzing;
-  const canAnalyzeUrl = instagramUrl.trim().length > 0 && !isAnalyzing;
+  const canAnalyzeImage = Boolean(imageData) && !isAnalyzing;
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '24px 20px' }}>
-      {/* 헤더 */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, color: '#191F28', letterSpacing: '-0.5px' }}>
-          웨어고
-        </h1>
-        <p style={{ fontSize: 15, color: '#778088', marginTop: 6 }}>
-          옷 사진을 올리면 비슷한 상품을 찾아드려요
-        </p>
+    <div
+      className="app-shell"
+      style={{ height: '100%', display: 'flex', flexDirection: 'column', padding: '28px 20px 20px' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+        <div>
+          <h1 className="serif-brand" style={{ fontSize: 40, lineHeight: 1, fontWeight: 600, letterSpacing: '-0.03em' }}>
+            Cloi
+          </h1>
+          <p style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
+            사진 한 장으로 비슷한 무드의 아이템을 찾아주는
+            <br />
+            감도형 쇼핑 탐색 앱
+          </p>
+        </div>
+
+        <button type="button" className="icon-button" onClick={onNavigateFavorites} style={{ position: 'relative' }}>
+          <HeartIcon />
+          {favoritesCount > 0 && (
+            <span
+              style={{
+                position: 'absolute',
+                top: -4,
+                right: -4,
+                minWidth: 18,
+                height: 18,
+                borderRadius: 999,
+                background: '#aa6d82',
+                color: '#fff',
+                padding: '0 5px',
+                fontSize: 10,
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {favoritesCount > 9 ? '9+' : favoritesCount}
+            </span>
+          )}
+        </button>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 20 }}>
-        {/* 클립보드 배너 (P0-3) */}
-        <ClipboardBanner onDetected={handleClipboardDetected} />
-
-        {/* 이미지 업로드 섹션 (P0-1) */}
-        <section style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#191F28', marginBottom: 12 }}>
-            📸 사진으로 찾기
-          </h2>
+      <div className="screen-scroll">
+        <section className="section-card fade-rise" style={{ padding: 18, marginBottom: 22 }}>
+          <div style={{ marginBottom: 14 }}>
+            <p style={{ fontSize: 12, color: '#aa6d82', fontWeight: 700, letterSpacing: '0.08em' }}>PHOTO SEARCH</p>
+            <h2 style={{ marginTop: 6, fontSize: 18, fontWeight: 600, color: '#2c241f' }}>오늘의 착장과 닮은 상품 찾기</h2>
+            <p style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
+              업로드한 이미지의 분위기와 카테고리를 분석해서 비슷한 상품을 추천해드려요.
+            </p>
+          </div>
 
           {imagePreview ? (
-            <div style={{ position: 'relative', marginBottom: 14 }}>
-              <img
-                src={imagePreview}
-                alt="선택된 이미지"
+            <div className="fade-rise">
+              <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 22, marginBottom: 14 }}>
+                <img
+                  src={imagePreview}
+                  alt="선택한 이미지"
+                  style={{ width: '100%', height: 256, objectFit: 'cover' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImagePreview(null);
+                    setImageData(null);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: 12,
+                    right: 12,
+                    width: 34,
+                    height: 34,
+                    borderRadius: '50%',
+                    background: 'rgba(44, 36, 31, 0.46)',
+                    color: '#fff',
+                    fontSize: 18,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <div
                 style={{
-                  width: '100%',
-                  height: 220,
-                  objectFit: 'cover',
-                  borderRadius: 16,
-                  border: '2px solid #0064FF',
-                }}
-              />
-              <button
-                onClick={() => { setImagePreview(null); setImageData(null); }}
-                style={{
-                  position: 'absolute',
-                  top: 10, right: 10,
-                  width: 28, height: 28,
-                  borderRadius: '50%',
-                  background: 'rgba(0,0,0,0.5)',
-                  color: '#fff',
-                  fontSize: 16,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  marginBottom: 14,
+                  padding: '12px 14px',
+                  borderRadius: 18,
+                  background: 'rgba(241, 217, 227, 0.55)',
+                  color: '#8c5e71',
+                  fontSize: 13,
+                  lineHeight: 1.6,
                 }}
               >
-                ×
-              </button>
+                이미지가 준비됐어요. 이 무드와 비슷한 아이템을 바로 탐색할 수 있습니다.
+              </div>
             </div>
           ) : (
             <ImageUploader onImageSelected={handleImageSelected} />
           )}
 
-          <button
-            className="btn-primary"
-            onClick={handleImageAnalyze}
-            disabled={!canAnalyzeImage}
-            style={{ marginTop: 12 }}
-          >
-            {isAnalyzing ? '분석 중...' : '이 옷 찾기'}
+          <button type="button" className="btn-primary" onClick={handleImageAnalyze} disabled={!canAnalyzeImage} style={{ marginTop: 14 }}>
+            {isAnalyzing ? '분석 중...' : '비슷한 상품 찾기'}
           </button>
         </section>
 
-        {/* 구분선 */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          marginBottom: 24,
-          color: '#C5CDD4',
-          fontSize: 13,
-        }}>
-          <div style={{ flex: 1, height: 1, background: '#F2F4F6' }} />
-          <span>또는</span>
-          <div style={{ flex: 1, height: 1, background: '#F2F4F6' }} />
-        </div>
+        {history.length > 0 && (
+          <section className="fade-rise">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div>
+                <p style={{ fontSize: 12, color: '#aa6d82', fontWeight: 700, letterSpacing: '0.08em' }}>RECENT</p>
+                <h2 style={{ marginTop: 4, fontSize: 17, fontWeight: 600 }}>최근 탐색</h2>
+              </div>
+              <span style={{ fontSize: 12, color: '#8c7c71' }}>{history.length}개</span>
+            </div>
 
-        {/* 인스타그램 링크 입력 (P0-2) */}
-        <section>
-          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#191F28', marginBottom: 12 }}>
-            🔗 인스타그램 링크로 찾기
-          </h2>
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-            padding: '14px 16px',
-            background: '#F9FAFB',
-            borderRadius: 12,
-            marginBottom: 12,
-          }}>
-            <p style={{ fontSize: 12, color: '#778088' }}>
-              ⚠️ 공개 게시물 링크만 지원해요. 비공개 계정은 사진 업로드를 이용해 주세요.
-            </p>
-          </div>
-          <input
-            type="url"
-            placeholder="https://www.instagram.com/p/..."
-            value={instagramUrl}
-            onChange={(e) => setInstagramUrl(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && canAnalyzeUrl && handleUrlAnalyze()}
-            style={{
-              width: '100%',
-              height: 50,
-              padding: '0 16px',
-              border: '1.5px solid #E5E8EB',
-              borderRadius: 10,
-              fontSize: 14,
-              color: '#191F28',
-              outline: 'none',
-              marginBottom: 12,
-              background: '#fff',
-            }}
-            onFocus={(e) => (e.currentTarget.style.borderColor = '#0064FF')}
-            onBlur={(e) => (e.currentTarget.style.borderColor = '#E5E8EB')}
-          />
-          <button
-            className="btn-primary"
-            onClick={handleUrlAnalyze}
-            disabled={!canAnalyzeUrl}
-          >
-            {isAnalyzing ? '분석 중...' : '링크로 찾기'}
-          </button>
-        </section>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8 }}>
+              {history.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onHistorySelect(item)}
+                  className="section-card"
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    padding: 12,
+                    textAlign: 'left',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 16,
+                      overflow: 'hidden',
+                      background: '#efe5d8',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {item.products[0]?.image ? (
+                      <img src={item.products[0].image} alt="검색 기록 썸네일" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : null}
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 500,
+                        color: '#2c241f',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {item.keywords.slice(0, 4).join(' · ')}
+                    </p>
+                    <p style={{ marginTop: 4, fontSize: 12, color: '#8c7c71' }}>
+                      상품 {item.products.length}개 · {formatTime(item.timestamp)}
+                    </p>
+                  </div>
+
+                  <ArrowIcon />
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );
+}
+
+function formatTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const min = Math.floor(diff / 60000);
+
+  if (min < 1) return '방금 전';
+  if (min < 60) return `${min}분 전`;
+
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour}시간 전`;
+
+  return `${Math.floor(hour / 24)}일 전`;
 }
