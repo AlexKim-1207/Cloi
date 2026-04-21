@@ -104,11 +104,6 @@ export default function HomePage({
           <h1 className="serif-brand" style={{ fontSize: 40, lineHeight: 1, fontWeight: 600, letterSpacing: '-0.03em' }}>
             Cloi
           </h1>
-          <p style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
-            사진 한 장으로 비슷한 무드의 아이템을 찾아주는
-            <br />
-            감도형 쇼핑 탐색 앱
-          </p>
         </div>
 
         <button type="button" className="icon-button" onClick={onNavigateFavorites} style={{ position: 'relative' }}>
@@ -142,10 +137,6 @@ export default function HomePage({
         <section className="section-card fade-rise" style={{ padding: 18, marginBottom: 22 }}>
           <div style={{ marginBottom: 14 }}>
             <p style={{ fontSize: 12, color: '#aa6d82', fontWeight: 700, letterSpacing: '0.08em' }}>PHOTO SEARCH</p>
-            <h2 style={{ marginTop: 6, fontSize: 18, fontWeight: 600, color: '#2c241f' }}>오늘의 착장과 닮은 상품 찾기</h2>
-            <p style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
-              업로드한 이미지의 분위기와 카테고리를 분석해서 비슷한 상품을 추천해드려요.
-            </p>
           </div>
 
           {imagePreview ? (
@@ -188,14 +179,20 @@ export default function HomePage({
                   lineHeight: 1.6,
                 }}
               >
-                이미지가 준비됐어요. 이 무드와 비슷한 아이템을 바로 탐색할 수 있습니다.
+                이미지가 준비됐어요.
               </div>
             </div>
           ) : (
             <ImageUploader onImageSelected={handleImageSelected} />
           )}
 
-          <button type="button" className="btn-primary" onClick={handleImageAnalyze} disabled={!canAnalyzeImage} style={{ marginTop: 14 }}>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={handleImageAnalyze}
+            disabled={!canAnalyzeImage}
+            style={{ marginTop: 14 }}
+          >
             {isAnalyzing ? '분석 중...' : '비슷한 상품 찾기'}
           </button>
         </section>
@@ -237,7 +234,11 @@ export default function HomePage({
                     }}
                   >
                     {item.products[0]?.image ? (
-                      <img src={item.products[0].image} alt="검색 기록 썸네일" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <img
+                        src={item.products[0].image}
+                        alt="검색 기록 썸네일"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
                     ) : null}
                   </div>
 
