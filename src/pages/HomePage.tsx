@@ -104,6 +104,9 @@ export default function HomePage({
           <h1 className="serif-brand" style={{ fontSize: 40, lineHeight: 1, fontWeight: 600, letterSpacing: '-0.03em' }}>
             Cloi
           </h1>
+          <p style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
+            사진 한 장으로 최저가 아이템을 찾아주는 쇼핑 탐색 앱
+          </p>
         </div>
 
         <button type="button" className="icon-button" onClick={onNavigateFavorites} style={{ position: 'relative' }}>
