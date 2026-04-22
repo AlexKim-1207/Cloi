@@ -22,13 +22,12 @@ function BackIcon() {
   );
 }
 
-function ShareIcon() {
+function CartIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2c241f" strokeWidth="1.8">
-      <circle cx="18" cy="5" r="3" />
-      <circle cx="6" cy="12" r="3" />
-      <circle cx="18" cy="19" r="3" />
-      <path d="M8.59 13.51l6.83 3.98M15.41 6.51 8.59 10.49" strokeLinecap="round" />
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2c241f" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="21" r="1" />
+      <circle cx="20" cy="21" r="1" />
+      <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
     </svg>
   );
 }
@@ -186,25 +185,26 @@ export default function ResultPage({
           <button type="button" className="icon-button" onClick={onBack}>
             <BackIcon />
           </button>
-          <div style={{ textAlign: 'center' }}>
-            <div className="serif-brand" style={{ fontSize: 22, lineHeight: 1, fontWeight: 600 }}>
-              Cloi
-            </div>
-            <p style={{ marginTop: 4, fontSize: 12, color: '#8c7c71' }}>검색 결과</p>
+          <div className="serif-brand" style={{ fontSize: 22, fontWeight: 600, color: '#2c241f', letterSpacing: '-0.3px' }}>
+            검색 결과
           </div>
           <button type="button" className="icon-button" onClick={handleShare}>
-            <ShareIcon />
+            <CartIcon />
           </button>
         </div>
 
-        <div className="section-card fade-rise" style={{ padding: 16, marginBottom: 14 }}>
-          <p style={{ fontSize: 12, color: '#b6a89c', marginBottom: 6 }}>업로드한 이미지와 닮은 결과</p>
-          <h1 style={{ fontSize: 20, fontWeight: 600, color: '#2c241f' }}>
-            {CATEGORY_LABELS[activeTab] ?? ''} 상품 {filteredProducts.length}개
-          </h1>
-          <p style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
-            조건에 맞는 상품을 모았어요. 카드를 누르면 바로 쇼핑몰로 이동합니다.
-          </p>
+        <div className="section-card fade-rise" style={{ padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 8, background: '#ede5d8', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="18" height="22" viewBox="0 0 60 72" fill="none">
+              <path d="M22 4C22 4 18 8 12 10L4 14L8 26L16 22V68H44V22L52 26L56 14L48 10C42 8 38 4 38 4C36 8 33 10 30 10C27 10 24 8 22 4Z" fill="#b6a89c" />
+            </svg>
+          </div>
+          <div>
+            <p style={{ fontSize: 12, color: '#b6a89c' }}>업로드한 사진과 비슷한 상품</p>
+            <p style={{ fontSize: 13, color: '#8c7c71', fontWeight: 500, marginTop: 1 }}>
+              총 {localResults.reduce((sum, r) => sum + r.products.length, 0)}개 발견
+            </p>
+          </div>
         </div>
 
         <div className="capsule-row" style={{ paddingBottom: 12 }}>

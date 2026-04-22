@@ -105,7 +105,7 @@ export default function HomePage({
             Cloi
           </h1>
           <p style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
-            사진 한 장으로 최저가 아이템을 찾아주는 쇼핑 탐색 앱
+            나에게 딱맞는 최저가 옷 찾기
           </p>
         </div>
 
@@ -196,7 +196,7 @@ export default function HomePage({
             disabled={!canAnalyzeImage}
             style={{ marginTop: 14 }}
           >
-            {isAnalyzing ? '분석 중...' : '비슷한 상품 찾기'}
+            {isAnalyzing ? '분석 중...' : '이 옷 찾기'}
           </button>
         </section>
 
