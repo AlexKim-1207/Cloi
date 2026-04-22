@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
+  // 프로덕션 빌드 시 API_BASE를 빈 문자열로 고정 (동일 도메인 Pages Functions)
+  define: mode === 'production'
+    ? { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify('') }
+    : {},
   server: {
     port: 5173,
     proxy: {
@@ -15,6 +19,6 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false, // 프로덕션에서 소스맵 비활성화 (보안)
+    sourcemap: false,
   },
-});
+}));

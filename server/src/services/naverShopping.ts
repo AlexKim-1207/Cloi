@@ -38,7 +38,6 @@ export async function searchNaverShopping(
     display: String(display),
     start: String(start),
     sort: 'sim', // 정확도순
-    filter: 'naverpay', // 네이버페이 지원 상품 우선
   });
 
   const res = await fetch(`${NAVER_API_URL}?${params}`, {

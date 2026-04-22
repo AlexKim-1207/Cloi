@@ -25,11 +25,15 @@ router.post('/', async (req: Request, res: Response) => {
     return res.json(result);
   } catch (err: unknown) {
     const error = err as Error & { code?: string };
-    console.error('[analyze]', error.message);
-    return res.status(500).json({
-      message: error.message || '이미지 분석 중 오류가 발생했어요.',
-      code: error.code,
-    });
+    console.error('[analyze]', error.code ?? '', error.message);
+
+    if (error.code === 'QUOTA_EXCEEDED') {
+      return res.status(429).json({ message: error.message, code: error.code });
+    }
+    if (error.code === 'IMAGE_QUALITY') {
+      return res.status(422).json({ message: error.message, code: error.code });
+    }
+    return res.status(500).json({ message: '이미지 분석 중 오류가 발생했어요.', code: error.code });
   }
 });
 
