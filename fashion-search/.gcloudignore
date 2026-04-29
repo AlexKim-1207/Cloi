@@ -1,3 +1,4 @@
+.gcloudignore
 .venv/
 __pycache__/
 *.pyc
@@ -7,5 +8,8 @@ eval/queries/
 eval/results/
 .git/
 weights/
+weights/*.pt
+weights/*.bin
+weights/*.safetensors
 node_modules/
 SESSION_STATUS.md

@@ -3,18 +3,13 @@ set -e
 PROJECT_ID=${GCP_PROJECT_ID:-cloi-fashion-search}
 REGION="asia-northeast3"
 SERVICE_NAME="fashion-search"
-IMAGE="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
 echo "=== Cloud Run 배포: ${SERVICE_NAME} (${REGION}) ==="
 
-gcloud builds submit \
-  --project="${PROJECT_ID}" \
-  --tag="${IMAGE}" \
-  fashion-search/
-
+# 소스에서 직접 빌드 + 배포 (Cloud Build 자동 처리)
 gcloud run deploy "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
-  --image="${IMAGE}" \
+  --source="fashion-search/" \
   --region="${REGION}" \
   --platform=managed \
   --allow-unauthenticated \
@@ -23,8 +18,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --min-instances=0 \
   --max-instances=3 \
   --port=8080 \
-  --set-env-vars="EMBEDDER_NAME=fashion_clip,KMP_DUPLICATE_LIB_OK=TRUE" \
-  --set-secrets="GOOGLE_API_KEY=google-api-key:latest"
+  --set-env-vars="EMBEDDER_NAME=fashion_clip,KMP_DUPLICATE_LIB_OK=TRUE,GOOGLE_API_KEY=${GOOGLE_API_KEY}"
 
 URL=$(gcloud run services describe "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \

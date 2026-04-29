@@ -11,4 +11,4 @@ mode = "smart"
 enabled = true
 
 [vars]
-FASHION_SEARCH_URL = ""
+FASHION_SEARCH_URL = "https://fashion-search-dibvogjuma-du.a.run.app"
