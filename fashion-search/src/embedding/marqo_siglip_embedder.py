@@ -19,8 +19,9 @@ class MarqoSigLIPEmbedder(ImageEmbedder):
     def load(self) -> None:
         if self._model is not None:
             return
-        from transformers import AutoModel, AutoProcessor  # type: ignore
-        self._model = AutoModel.from_pretrained(_MODEL_ID, trust_remote_code=True)
+        from transformers import SiglipModel, AutoProcessor  # type: ignore
+        # SiglipModel avoids trust_remote_code meta-tensor bug in newer PyTorch
+        self._model = SiglipModel.from_pretrained(_MODEL_ID)
         self._processor = AutoProcessor.from_pretrained(_MODEL_ID, trust_remote_code=True)
         self._model.eval()
 
@@ -32,7 +33,8 @@ class MarqoSigLIPEmbedder(ImageEmbedder):
             batch = images[i : i + self.batch_size]
             inputs = self._processor(images=batch, return_tensors="pt")
             with torch.no_grad():
-                feats = self._model.get_image_features(**inputs).cpu().numpy().astype(np.float32)
+                vision_out = self._model.vision_model(pixel_values=inputs["pixel_values"])
+                feats = vision_out.pooler_output.cpu().numpy().astype(np.float32)
             norms = np.linalg.norm(feats, axis=1, keepdims=True)
             norms = np.where(norms == 0, 1e-9, norms)
             all_features.append(feats / norms)
