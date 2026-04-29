@@ -1,8 +1,16 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 3
-- 다음 세션: SESSION 4
+- 완료 세션: SESSION 4 ✅
+- 다음 세션: 없음 (전체 완료)
+
+## SESSION 4: ✅ 완료
+- 우승 모델 fashion_clip → settings.py 반영
+- Reranker 그리드 서치 → Recall@10=1.0 (W_SIM=0.40)
+- Gemini 2.5 Flash 4파일 통일
+- Cloud Run 배포 완료: https://fashion-search-dibvogjuma-du.a.run.app (faiss_size=2725)
+- CF Worker 배포 완료: https://cloi-api.kyoung361207.workers.dev
+- FASHION_SEARCH_URL 연결 완료
 
 ---
 
