@@ -1,8 +1,8 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 1
-- 다음 세션: SESSION 2
+- 완료 세션: SESSION 2
+- 다음 세션: SESSION 3
 
 ---
 
@@ -11,9 +11,21 @@
 | 세션 | 내용 | 상태 | 소요시간 |
 |------|------|------|----------|
 | SESSION 1 | 임베더 3종 구현 + 추상화 | ✅ 완료 | - |
-| SESSION 2 | 카탈로그 500장 + 인덱스 3세트 | ⏳ 대기 | - |
+| SESSION 2 | 카탈로그 500장 + 인덱스 3세트 | ✅ 완료 | - |
 | SESSION 3 | Ground Truth + A/B 측정 + 비교표 | ⏳ 대기 | - |
 | SESSION 4 | 우승모델 채택 + 배포 + 연동 | ⏳ 대기 | - |
+
+---
+
+## SESSION 2: ✅ 완료
+- 카탈로그 500장 (HF `ashraq/fashion-product-images-small`, stratified by subCategory)
+- `src/data/catalog/catalog.jsonl` 500줄 생성
+- FAISS 인덱스 3세트 빌드 완료:
+  - `artifacts/openclip_vitl14.faiss` ntotal=500 / `openclip_vitl14_meta.db` 500rows
+  - `artifacts/fashion_clip.faiss` ntotal=500 / `fashion_clip_meta.db` 500rows
+  - `artifacts/marqo_fashion_siglip.faiss` ntotal=500 / `marqo_fashion_siglip_meta.db` 500rows
+- 스크립트: `scripts/seed_catalog.py`, `scripts/build_catalog_index.py` (--embedder 인자 추가)
+- KMP_DUPLICATE_LIB_OK=TRUE 필요 (Windows OMP 충돌)
 
 ---
 
@@ -35,7 +47,7 @@
 
 ```bash
 cd "C:\Users\Alex KIM\Desktop\사업 프로젝트\인앱토스 1"
-claude --dangerously-skip-permissions "CLAUDE.md와 fashion-search/docs/EXECUTION_PLAN.md를 읽고 SESSION 2 작업을 진행해. 완료 후 SESSION_STATUS.md를 업데이트하고 git commit해."
+claude --dangerously-skip-permissions "CLAUDE.md와 fashion-search/docs/EXECUTION_PLAN.md를 읽고 SESSION 3 작업을 진행해. 완료 후 SESSION_STATUS.md를 업데이트하고 git commit해."
 ```
 
 ---
@@ -54,13 +66,13 @@ claude --dangerously-skip-permissions "CLAUDE.md와 fashion-search/docs/EXECUTIO
 - [x] 단위 테스트 실행 검증 (3종 모두 PASS: openclip/fashion_clip/marqo_siglip)
 
 ### SESSION 2 산출물
-- [ ] `fashion-search/scripts/seed_catalog.py`
-- [ ] `fashion-search/src/data/catalog/` 500장+
-- [ ] `fashion-search/src/data/catalog/catalog.jsonl`
-- [ ] `fashion-search/artifacts/openclip_vitl14.faiss`
-- [ ] `fashion-search/artifacts/fashion_clip.faiss`
-- [ ] `fashion-search/artifacts/marqo_fashion_siglip.faiss`
-- [ ] git commit: `feat: step2 catalog seed and index build`
+- [x] `fashion-search/scripts/seed_catalog.py`
+- [x] `fashion-search/src/data/catalog/` 500장+
+- [x] `fashion-search/src/data/catalog/catalog.jsonl`
+- [x] `fashion-search/artifacts/openclip_vitl14.faiss` (ntotal=500)
+- [x] `fashion-search/artifacts/fashion_clip.faiss` (ntotal=500)
+- [x] `fashion-search/artifacts/marqo_fashion_siglip.faiss` (ntotal=500)
+- [x] git commit: `feat: step2 catalog seed and index build`
 
 ### SESSION 3 산출물
 - [ ] `fashion-search/scripts/generate_eval_set.py`
