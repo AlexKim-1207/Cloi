@@ -18,9 +18,9 @@ from ..llm.gemini_extract import GarmentAttributes
 logger = logging.getLogger(__name__)
 
 # 가중치 상수
-W_SIM = 0.55
-W_CAT = 0.10
-W_COLOR = 0.10
+W_SIM = 0.4
+W_CAT = 0.05
+W_COLOR = 0.05
 W_FIT = 0.08
 W_STYLE = 0.07
 W_SHIPPING = 0.05

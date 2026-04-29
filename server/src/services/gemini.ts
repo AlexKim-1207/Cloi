@@ -3,7 +3,7 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/ge
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 const model = genAI.getGenerativeModel({
-  model: 'gemini-2.5-flash',
+  model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   generationConfig: {
     temperature: 0.2,  // 일관된 키워드 추출을 위해 낮게 설정
   },

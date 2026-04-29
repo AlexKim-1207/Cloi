@@ -9,3 +9,6 @@ mode = "smart"
 
 [observability]
 enabled = true
+
+[vars]
+FASHION_SEARCH_URL = ""

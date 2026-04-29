@@ -11,7 +11,7 @@ class Settings(BaseSettings):
 
     # Gemini
     google_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash"
 
     # Model weights (절대경로 기본값)
     gdino_checkpoint: str = str(_PROJECT_ROOT / "weights/groundingdino_swint_ogc.pth")
@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     rerank_top_n: int = 20
 
     # Embedder selection
-    embedder_name: str = "marqo_fashion_siglip"
+    embedder_name: str = "fashion_clip"
     embedder_device: str = "cpu"
 
     # ── v2: 네이버쇼핑 + CLIP 파이프라인 ─────────────────────────────────

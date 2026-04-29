@@ -11,6 +11,7 @@ export interface Env {
   GEMINI_API_KEY: string;
   NAVER_CLIENT_ID: string;
   NAVER_CLIENT_SECRET: string;
+  FASHION_SEARCH_URL?: string;
 }
 
 // ─── 에러 직렬화 (Workers에서 Error 객체는 JSON.stringify가 {} 반환) ──────────
@@ -82,7 +83,7 @@ async function analyzeImage(apiKey: string, imageBase64: string, mimeType: strin
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel(
     {
-      model: 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
       generationConfig: { temperature: 0.2 },
       safetySettings: [
         { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -393,6 +394,52 @@ app.post('/api/search/categories', async (c) => {
     const serialized = serializeError(err);
     console.error('[/api/search/categories] error:', serialized);
     return c.json({ message: serialized.message || '카테고리별 검색 중 오류가 발생했어요.', detail: serialized.stack }, 500);
+  }
+});
+
+// ─── POST /api/search-image — Phase 2 ML 유사 이미지 검색 ──────────────────────
+app.post('/api/search-image', async (c) => {
+  console.log('[POST /api/search-image] request received');
+  const fashionSearchUrl = c.env.FASHION_SEARCH_URL;
+  if (!fashionSearchUrl) {
+    return c.json({ message: 'FASHION_SEARCH_URL 환경변수가 설정되지 않았어요.' }, 503);
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ message: '요청 본문 파싱 실패' }, 400);
+  }
+
+  try {
+    const upstream = await fetch(`${fashionSearchUrl}/api/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (upstream.ok) {
+      const data = await upstream.json();
+      return c.json(data);
+    }
+
+    console.warn('[/api/search-image] upstream error', upstream.status, '→ naver fallback');
+  } catch (err) {
+    console.warn('[/api/search-image] upstream timeout/error, naver fallback:', serializeError(err));
+  }
+
+  // Naver fallback
+  try {
+    const b = body as Record<string, unknown>;
+    const query = (b.query as string) || '';
+    if (!query) return c.json({ message: '검색어가 필요해요.' }, 400);
+    const result = await searchNaver(c.env.NAVER_CLIENT_ID, c.env.NAVER_CLIENT_SECRET, query);
+    return c.json(result);
+  } catch (err) {
+    const s = serializeError(err);
+    return c.json({ message: s.message }, 500);
   }
 });
 

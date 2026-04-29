@@ -94,6 +94,6 @@ async def health():
     return {
         "status": "ok",
         "version": "2.0.0",
-        "clip_loaded": app_state.clip_loaded,
+        "embedder": app_state.embedder.name if app_state.embedder else None,
         "faiss_size": app_state.faiss_store.size() if app_state.faiss_store else 0,
     }
