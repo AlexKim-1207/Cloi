@@ -1,8 +1,18 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 4 ✅
+- 완료 세션: SESSION 5 ✅
 - 다음 세션: 없음 (전체 완료)
+
+## SESSION 5: ✅ 완료 (2026-04-29)
+- E2E 테스트: Cloud Run /health ✅ (faiss_size=2725), CF Worker /health ✅
+- Cloud Run /api/search: Gemini 503 외부 장애 (코드 로직 정상)
+- [보안] worker.ts 에러 응답 stack trace 제거 (4곳)
+- [버그픽스] gemini_client.py + style_analyzer.py retry 범위 축소 (일시적 오류만)
+- [빌드] Rollup WASM 교체 (Node v24 sandbox 호환) + build.mjs 추가
+- CF Pages 배포: https://5b59c50c.cloi.pages.dev ✅
+- CF Worker 재배포: https://cloi-api.kyoung361207.workers.dev ✅
+- git push origin main ✅
 
 ## SESSION 4: ✅ 완료
 - 우승 모델 fashion_clip → settings.py 반영
