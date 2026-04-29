@@ -18,7 +18,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --min-instances=0 \
   --max-instances=3 \
   --port=8080 \
-  --set-env-vars="EMBEDDER_NAME=fashion_clip,KMP_DUPLICATE_LIB_OK=TRUE,GOOGLE_API_KEY=${GOOGLE_API_KEY}"
+  --set-env-vars="EMBEDDER_NAME=fashion_clip,KMP_DUPLICATE_LIB_OK=TRUE,GOOGLE_API_KEY=${GOOGLE_API_KEY},ADMIN_TOKEN=${ADMIN_TOKEN},DEBUG=false,NAVER_CLIENT_ID=${NAVER_CLIENT_ID:-},NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET:-}"
 
 URL=$(gcloud run services describe "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
@@ -29,3 +29,4 @@ echo ""
 echo "다음 단계:"
 echo "  1. server/wrangler.toml FASHION_SEARCH_URL = \"${URL}\" 로 교체"
 echo "  2. cd server && wrangler deploy"
+echo ""

@@ -405,19 +405,33 @@ app.post('/api/search-image', async (c) => {
     return c.json({ message: 'FASHION_SEARCH_URL 환경변수가 설정되지 않았어요.' }, 503);
   }
 
-  let body: unknown;
+  let imageBase64: string;
+  let mimeType: string;
+  let fallbackQuery: string;
   try {
-    body = await c.req.json();
+    const body = await c.req.json<{ imageBase64: string; mimeType?: string; query?: string }>();
+    imageBase64 = body.imageBase64 || '';
+    mimeType = body.mimeType || 'image/jpeg';
+    fallbackQuery = body.query || '';
   } catch {
     return c.json({ message: '요청 본문 파싱 실패' }, 400);
   }
 
+  if (!imageBase64) return c.json({ message: 'imageBase64가 필요해요.' }, 400);
+
+  // base64 → Blob → multipart/form-data (Cloud Run expects UploadFile)
   try {
+    const binary = atob(imageBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: mimeType });
+    const form = new FormData();
+    form.append('file', blob, 'image.jpg');
+
     const upstream = await fetch(`${fashionSearchUrl}/api/search`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5000),
+      body: form,
+      signal: AbortSignal.timeout(30000),
     });
 
     if (upstream.ok) {
@@ -432,10 +446,8 @@ app.post('/api/search-image', async (c) => {
 
   // Naver fallback
   try {
-    const b = body as Record<string, unknown>;
-    const query = (b.query as string) || '';
-    if (!query) return c.json({ message: '검색어가 필요해요.' }, 400);
-    const result = await searchNaver(c.env.NAVER_CLIENT_ID, c.env.NAVER_CLIENT_SECRET, query);
+    if (!fallbackQuery) return c.json({ message: '검색어가 필요해요.' }, 400);
+    const result = await searchNaver(c.env.NAVER_CLIENT_ID, c.env.NAVER_CLIENT_SECRET, fallbackQuery);
     return c.json(result);
   } catch (err) {
     const s = serializeError(err);

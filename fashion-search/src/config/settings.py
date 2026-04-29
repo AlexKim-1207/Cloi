@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # DB (검색 로그 + 인기 집계)
     db_path: str = str(_PROJECT_ROOT / "artifacts/search_logs.db")
 
+    # Admin auth
+    admin_token: str = ""
+
+    # Runtime mode
+    debug: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

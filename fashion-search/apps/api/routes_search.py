@@ -20,6 +20,9 @@ from io import BytesIO
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from PIL import Image
 
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+_ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
+
 from src.cache.result_cache import get_cached, set_cached
 from src.llm.style_analyzer import analyze_style
 from src.logging.search_logger import get_popular_items, log_click, log_search
@@ -38,9 +41,15 @@ async def search(file: UploadFile = File(...)) -> SearchResponse:
     start = time.monotonic()
 
     # ── 1. 이미지 읽기 + 해시 ─────────────────────────────────────────────────
+    mime = file.content_type or "image/jpeg"
+    if mime not in _ALLOWED_MIME:
+        raise HTTPException(status_code=415, detail=f"지원하지 않는 파일 형식: {mime}")
+
     image_bytes = await file.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="빈 파일입니다.")
+    if len(image_bytes) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="파일이 너무 큽니다. 10MB 이하로 업로드해 주세요.")
 
     image_hash = hashlib.sha256(image_bytes).hexdigest()
 
@@ -61,10 +70,10 @@ async def search(file: UploadFile = File(...)) -> SearchResponse:
 
     # ── 4. Gemini 스타일 분석 ─────────────────────────────────────────────────
     try:
-        style_context = await analyze_style(image_bytes, mime_type=file.content_type or "image/jpeg")
+        style_context = await analyze_style(image_bytes, mime_type=mime)
     except Exception as exc:
         logger.error("[routes_search] Gemini 분석 실패: %s", exc)
-        raise HTTPException(status_code=502, detail=f"스타일 분석 실패: {exc}")
+        raise HTTPException(status_code=502, detail="스타일 분석 서비스에 일시적인 오류가 발생했습니다.")
 
     if not style_context.items:
         raise HTTPException(

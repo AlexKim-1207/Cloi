@@ -14,7 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 from src.cache.result_cache import init_cache_db
 from src.config.settings import get_settings
-from src.embedding import get_embedder
+from src.embedding import ImageEmbedder, get_embedder
 from src.llm.gemini_client import get_client
 from src.logging.search_logger import init_db as init_search_db
 from src.search.faiss_store import FAISSStore
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 class AppState:
     faiss_store: FAISSStore | None = None
-    embedder = None
+    embedder: ImageEmbedder | None = None
 
 
 app_state = AppState()
@@ -71,16 +71,28 @@ async def lifespan(app: FastAPI):
     logger.info("[lifespan] 종료")
 
 
+_settings = get_settings()
+
+_ALLOWED_ORIGINS = [
+    "https://cloi.pages.dev",
+    "https://cloi-api.kyoung361207.workers.dev",
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+
 app = FastAPI(
     title="Fashion Search API v2",
     version="2.0.0",
     description="패션 이미지 → Gemini 스타일 분석 → 네이버쇼핑 병렬 검색 → CLIP 필터",
     lifespan=lifespan,
+    docs_url="/docs" if _settings.debug else None,
+    redoc_url="/redoc" if _settings.debug else None,
+    openapi_url="/openapi.json" if _settings.debug else None,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )

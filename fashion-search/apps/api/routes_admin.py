@@ -6,25 +6,37 @@
     GET  /admin/catalog/stats   — 인덱스 통계
 """
 import base64
+import io
 import logging
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import APIKeyHeader
 
 from src.config.settings import get_settings
+from src.embedding.catalog_embed_job import build_embeddings
 from src.embedding.openclip_embed import embed_images
 from src.search.faiss_store import FAISSStore
-from src.embedding.catalog_embed_job import build_embeddings
 
 from .schemas import CatalogAddRequest, CatalogStatsResponse
 
-import numpy as np
 from PIL import Image
-import io
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+
+_api_key_header = APIKeyHeader(name="X-Admin-Token", auto_error=False)
+
+
+def _require_admin(token: str | None = Depends(_api_key_header)) -> None:
+    admin_token = get_settings().admin_token
+    if not admin_token:
+        raise HTTPException(status_code=503, detail="ADMIN_TOKEN 환경변수가 설정되지 않았습니다.")
+    if token != admin_token:
+        raise HTTPException(status_code=401, detail="관리자 인증 실패")
+
+
+router = APIRouter(dependencies=[Depends(_require_admin)])
 
 
 @router.post("/catalog/add")
@@ -34,15 +46,13 @@ async def add_catalog_item(request: Request, body: CatalogAddRequest) -> dict:
     if app_state is None:
         raise HTTPException(status_code=503, detail="앱 상태 없음")
 
-    # 이미지 디코딩
     try:
         image_bytes = base64.b64decode(body.image_base64)
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="이미지 디코딩 실패")
 
-    # 임베딩
-    vec = embed_images([image])[0]  # shape (D,)
+    vec = embed_images([image])[0]
 
     meta = {
         "product_id": body.product_id,
@@ -58,14 +68,12 @@ async def add_catalog_item(request: Request, body: CatalogAddRequest) -> dict:
     index_path = os.path.join(settings.artifacts_dir, "catalog.index")
 
     if app_state.faiss_store is None:
-        # 인덱스 없음 → 새로 생성
         store = FAISSStore(dim=len(vec))
         store.build(vec.reshape(1, -1), [meta])
         app_state.faiss_store = store
     else:
         app_state.faiss_store.add(vec.reshape(1, -1), [meta])
 
-    # 저장
     app_state.faiss_store.save(index_path)
     logger.info("[admin] 상품 추가 완료: %s (총 %d개)", body.product_id, app_state.faiss_store.size())
 
@@ -88,7 +96,6 @@ async def rebuild_catalog(request: Request) -> dict:
     store.build(vectors, meta)
     store.save(index_path)
 
-    # 앱 상태 갱신
     app_state = getattr(request.app.state, "app_state", None)
     if app_state:
         app_state.faiss_store = store
