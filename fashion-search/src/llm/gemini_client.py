@@ -1,10 +1,15 @@
 import logging
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+from src.config.settings import get_settings
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 import google.genai as genai
 from google.genai import types
 
-from src.config.settings import get_settings
+
+def _is_transient(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(k in msg for k in ("503", "service unavailable", "high demand", "resource_exhausted", "429", "unavailable"))
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +33,14 @@ def get_client() -> genai.Client:
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=1, max=8),
-    retry=retry_if_exception_type(Exception),
+    retry=retry_if_exception(_is_transient),
     reraise=False,
 )
 async def generate_with_retry(
     prompt: str,
     image_bytes: bytes | None = None,
     mime_type: str = "image/jpeg",
-    model: str = "gemini-2.5-flash",
+    model: str = "",
 ) -> str | None:
     """Gemini API 호출 (tenacity 재시도 포함).
 
@@ -44,14 +49,15 @@ async def generate_with_retry(
     """
     try:
         client = get_client()
-        parts: list = [prompt]
+        resolved_model = model or get_settings().gemini_model
+        parts: list = [types.Part.from_text(text=prompt)]
         if image_bytes is not None:
             parts = [
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-                prompt,
+                types.Part.from_text(text=prompt),
             ]
         response = client.models.generate_content(
-            model=model,
+            model=resolved_model,
             contents=parts,
         )
         return response.text

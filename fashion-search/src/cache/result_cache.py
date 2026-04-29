@@ -80,3 +80,50 @@ def set_cached_result(image_hash: str, result: dict) -> None:
         logger.info("[cache] SET: %s", image_hash[:16])
     except Exception as exc:
         logger.warning("[cache] 저장 실패: %s", exc)
+
+
+# ── v2 비동기 캐시 API (aiosqlite) ───────────────────────────────────────────
+
+async def get_cached(image_hash: str) -> dict | None:
+    """v2 비동기 캐시 조회."""
+    import aiosqlite
+
+    settings = get_settings()
+    ttl_hours = settings.cache_ttl_hours
+    try:
+        async with aiosqlite.connect(_get_db_path()) as db:
+            async with db.execute(
+                """
+                SELECT result_json FROM search_cache
+                WHERE image_hash = ?
+                  AND datetime(created_at) > datetime('now', ? || ' hours')
+                """,
+                (image_hash, f"-{ttl_hours}"),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row:
+            logger.info("[cache] HIT (async): %s", image_hash[:16])
+            return json.loads(row[0])
+    except Exception as exc:
+        logger.warning("[cache] async 조회 실패: %s", exc)
+    return None
+
+
+async def set_cached(image_hash: str, data: dict) -> None:
+    """v2 비동기 캐시 저장."""
+    import aiosqlite
+
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        async with aiosqlite.connect(_get_db_path()) as db:
+            await db.execute(
+                """
+                INSERT OR REPLACE INTO search_cache (image_hash, result_json, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (image_hash, json.dumps(data, ensure_ascii=False), now),
+            )
+            await db.commit()
+        logger.info("[cache] SET (async): %s", image_hash[:16])
+    except Exception as exc:
+        logger.warning("[cache] async 저장 실패: %s", exc)

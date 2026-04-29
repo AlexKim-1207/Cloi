@@ -1,155 +1,119 @@
-"""검색 엔드포인트 — /search (병렬 FAISS + Gemini 파이프라인).
+"""v2 검색 엔드포인트 — Gemini 스타일 분석 → 네이버쇼핑 병렬 검색 → CLIP 필터.
 
 파이프라인:
-    1. 이미지 bytes 디코딩
-    2. SHA256 캐시 확인 → hit 시 즉시 반환
-    3. Vision 파이프라인: Grounding DINO → SAM2 crop
-    4. 각 crop에 대해 asyncio.gather():
-        a. OpenCLIP 임베딩 → FAISS top-50 검색
-        b. Gemini 속성 추출 (confidence < 0.7 or sim < 0.75 일 때만)
-    5. Reranker → top-20
-    6. 결과 캐시 저장 + JSON 반환
+    1. 이미지 bytes 해시 → 캐시 확인 (HIT: 즉시 반환)
+    2. Gemini 2.5 Flash: 이미지 전체 → StyleContext JSON
+    3. 네이버쇼핑 API: 아이템별 asyncio.gather 병렬 검색
+    4. CLIP: 유저 이미지 vs 상품 썸네일 유사도 → 카테고리별 TOP 5
+    5. 검색 로그 저장 + 캐시 저장 + JSON 반환
+
+엔드포인트:
+    POST /api/search                     — 이미지 업로드 (multipart/form-data)
+    POST /api/search/{hash}/click/{id}   — 클릭 이벤트 기록
+    GET  /api/popular                    — 인기 TOP 10
 """
-import asyncio
-import base64
+import hashlib
 import logging
 import time
+from io import BytesIO
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from PIL import Image
 
-from src.cache.result_cache import get_cached_result, get_image_hash, set_cached_result
-from src.config.settings import get_settings
-from src.embedding.query_embed import embed_query_crop
-from src.llm.gemini_extract import GarmentAttributes, extract_attributes
-from src.search.rerank import rerank
-from src.search.retrieve import search_similar
-from src.vision.cropper import crop_to_bytes
-from src.vision.pipeline import run_vision_pipeline
+from src.cache.result_cache import get_cached, set_cached
+from src.llm.style_analyzer import analyze_style
+from src.logging.search_logger import get_popular_items, log_click, log_search
+from src.ranking.clip_filter import rank_all_categories
+from src.search.parallel_search import search_all_items
 
-from .schemas import ProductResult, SearchRequest, SearchResponse
+from .schemas import PopularItem, ProductCard, SearchResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def _maybe_extract(
-    image_bytes: bytes,
-    top_score: float,
-    confidence_threshold: float,
-    sim_threshold: float = 0.75,
-) -> GarmentAttributes | None:
-    """조건부 Gemini 호출 (confidence 또는 FAISS 유사도가 낮을 때만)."""
-    if top_score >= sim_threshold:
-        logger.debug("[routes_search] FAISS 유사도 %.3f ≥ %.3f → Gemini 스킵", top_score, sim_threshold)
-        return None
-    logger.debug("[routes_search] FAISS 유사도 %.3f < %.3f → Gemini 호출", top_score, sim_threshold)
-    return await extract_attributes(image_bytes, mime_type="image/jpeg")
-
-
 @router.post("/search", response_model=SearchResponse)
-async def search(request: Request, body: SearchRequest) -> SearchResponse:
-    """패션 이미지 유사 상품 검색."""
-    start_ts = time.perf_counter()
-    settings = get_settings()
+async def search(file: UploadFile = File(...)) -> SearchResponse:
+    """패션 이미지 업로드 → 스타일 분석 → 아이템별 쇼핑 추천."""
+    start = time.monotonic()
 
-    # ── 1. 이미지 디코딩 ──────────────────────────────────────────────────────
-    try:
-        image_bytes = base64.b64decode(body.image_base64)
-    except Exception:
-        raise HTTPException(status_code=400, detail="이미지 base64 디코딩 실패")
+    # ── 1. 이미지 읽기 + 해시 ─────────────────────────────────────────────────
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="빈 파일입니다.")
+
+    image_hash = hashlib.sha256(image_bytes).hexdigest()
 
     # ── 2. 캐시 확인 ──────────────────────────────────────────────────────────
-    img_hash = get_image_hash(image_bytes)
-    cached = get_cached_result(img_hash)
+    cached = await get_cached(image_hash)
     if cached:
-        latency = (time.perf_counter() - start_ts) * 1000
+        latency_ms = int((time.monotonic() - start) * 1000)
         cached["cached"] = True
-        cached["latency_ms"] = round(latency, 1)
-        logger.info("[routes_search] 캐시 HIT — latency=%.1fms", latency)
+        cached["latency_ms"] = latency_ms
+        logger.info("[routes_search] 캐시 HIT — latency=%dms", latency_ms)
         return SearchResponse(**cached)
 
-    # ── 3. FAISS 스토어 확인 ──────────────────────────────────────────────────
-    app_state = getattr(request.app.state, "app_state", None)
-    if app_state is None or app_state.faiss_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail="FAISS 인덱스가 로드되지 않았습니다. build_catalog_index.py 실행 후 재시작 필요.",
-        )
-    store = app_state.faiss_store
+    # ── 3. PIL 이미지 변환 (CLIP용) ───────────────────────────────────────────
+    try:
+        pil_image = Image.open(BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="이미지 디코딩 실패")
 
-    # ── 4. Vision 파이프라인 ──────────────────────────────────────────────────
-    crops = await run_vision_pipeline(image_bytes)
-    if not crops:
+    # ── 4. Gemini 스타일 분석 ─────────────────────────────────────────────────
+    try:
+        style_context = await analyze_style(image_bytes, mime_type=file.content_type or "image/jpeg")
+    except Exception as exc:
+        logger.error("[routes_search] Gemini 분석 실패: %s", exc)
+        raise HTTPException(status_code=502, detail=f"스타일 분석 실패: {exc}")
+
+    if not style_context.items:
         raise HTTPException(
             status_code=422,
-            detail="의류를 감지할 수 없습니다. 의류가 포함된 이미지를 업로드해 주세요.",
+            detail="의류/잡화 아이템을 감지할 수 없습니다. 패션 이미지를 업로드해 주세요.",
         )
 
-    all_results: list = []
+    # ── 5. 네이버쇼핑 병렬 검색 ──────────────────────────────────────────────
+    raw_results = await search_all_items(style_context)
 
-    for crop in crops:
-        crop_img = crop.crop_image
+    # ── 6. CLIP 유사도 필터 (카테고리별 TOP 5) ────────────────────────────────
+    ranked_results = await rank_all_categories(pil_image, raw_results)
 
-        # ── 5. asyncio.gather: 임베딩+FAISS 검색 & 조건부 Gemini ────────────
-        crop_bytes = crop_to_bytes(crop_img)
-        query_vec = embed_query_crop(crop_img)
+    # ── 7. ProductCard 변환 ───────────────────────────────────────────────────
+    product_cards: dict[str, list[ProductCard]] = {
+        category: [ProductCard(**item) for item in items]
+        for category, items in ranked_results.items()
+        if items
+    }
 
-        # FAISS 검색 먼저 (await, 동기 blocking 없이)
-        candidates = await search_similar(query_vec, store, k=settings.faiss_top_k)
-        top_score = candidates[0].score if candidates else 0.0
-
-        # Gemini 조건부 호출 (유사도 낮으면)
-        query_attrs = await _maybe_extract(
-            crop_bytes,
-            top_score,
-            settings.gemini_confidence_threshold,
-        )
-
-        # ── 6. Reranker ────────────────────────────────────────────────────
-        ranked = rerank(candidates, query_attrs, top_n=body.top_k)
-        all_results.extend(ranked)
-
-    # 여러 crop이 있을 경우 재정렬 + 중복 제거
-    seen: set[str] = set()
-    deduped = []
-    for r in sorted(all_results, key=lambda x: x.final_score, reverse=True):
-        if r.product_id not in seen:
-            seen.add(r.product_id)
-            deduped.append(r)
-        if len(deduped) >= body.top_k:
-            break
-
-    # ── 7. ProductResult 변환 ─────────────────────────────────────────────
-    product_results = [
-        ProductResult(
-            product_id=r.product_id,
-            image_url=r.meta.get("image_url", ""),
-            name=r.meta.get("name", r.product_id),
-            brand=r.meta.get("brand", ""),
-            price=int(r.meta.get("price", 0)),
-            category=r.meta.get("category", ""),
-            shop_url=r.meta.get("shop_url", ""),
-            vector_similarity=round(r.vector_similarity, 4),
-            final_score=r.final_score,
-        )
-        for r in deduped
-    ]
-
-    latency = (time.perf_counter() - start_ts) * 1000
+    latency_ms = int((time.monotonic() - start) * 1000)
     response = SearchResponse(
-        results=product_results,
-        total=len(product_results),
+        style_context=style_context,
+        results=product_cards,
         cached=False,
-        latency_ms=round(latency, 1),
+        latency_ms=latency_ms,
     )
 
-    # ── 8. 결과 캐시 저장 ─────────────────────────────────────────────────
-    set_cached_result(img_hash, response.model_dump())
+    # ── 8. 로그 + 캐시 저장 ──────────────────────────────────────────────────
+    await log_search(image_hash, style_context, ranked_results)
+    await set_cached(image_hash, response.model_dump())
 
     logger.info(
-        "[routes_search] 완료 — crops=%d, results=%d, latency=%.1fms",
-        len(crops),
-        len(product_results),
-        latency,
+        "[routes_search] 완료 — style=%s, categories=%d, latency=%dms",
+        style_context.overall_style,
+        len(product_cards),
+        latency_ms,
     )
     return response
+
+
+@router.post("/search/{image_hash}/click/{product_id}", status_code=204)
+async def record_click(image_hash: str, product_id: str, category: str = "") -> None:
+    """상품 클릭 이벤트 기록 (CTR 집계용)."""
+    await log_click(image_hash, product_id, category)
+
+
+@router.get("/popular", response_model=list[PopularItem])
+async def get_popular(category: str | None = None, limit: int = 10) -> list[PopularItem]:
+    """클릭률 기준 인기 TOP N 상품 반환."""
+    items = await get_popular_items(category=category, limit=limit)
+    return [PopularItem(**item) for item in items]

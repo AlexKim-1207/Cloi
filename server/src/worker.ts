@@ -257,7 +257,7 @@ app.use('*', cors({
 app.onError((err, c) => {
   const serialized = serializeError(err);
   console.error('[global error handler]', serialized);
-  return c.json({ message: serialized.message, name: serialized.name, code: serialized.code, stack: serialized.stack }, 500);
+  return c.json({ message: serialized.message, name: serialized.name, code: serialized.code }, 500);
 });
 
 // ─── 헬스체크 ─────────────────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ app.post('/api/analyze', async (c) => {
     if (error.code === 'QUOTA_EXCEEDED') return c.json({ message: serialized.message, name: serialized.name, code: error.code }, 429);
     if (error.code === 'IMAGE_QUALITY') return c.json({ message: serialized.message, name: serialized.name, code: error.code }, 422);
     if (error.code === 'SERVICE_UNAVAILABLE') return c.json({ message: serialized.message, name: serialized.name, code: error.code }, 503);
-    return c.json({ message: serialized.message, name: serialized.name, code: serialized.code, stack: serialized.stack }, 500);
+    return c.json({ message: serialized.message, name: serialized.name, code: serialized.code }, 500);
   }
 });
 
@@ -334,7 +334,7 @@ app.post('/api/search', async (c) => {
   } catch (err: unknown) {
     const serialized = serializeError(err);
     console.error('[/api/search] error:', serialized);
-    return c.json({ message: serialized.message || '상품 검색 중 오류가 발생했어요.', detail: serialized.stack }, 500);
+    return c.json({ message: serialized.message || '상품 검색 중 오류가 발생했어요.' }, 500);
   }
 });
 
@@ -393,7 +393,7 @@ app.post('/api/search/categories', async (c) => {
   } catch (err: unknown) {
     const serialized = serializeError(err);
     console.error('[/api/search/categories] error:', serialized);
-    return c.json({ message: serialized.message || '카테고리별 검색 중 오류가 발생했어요.', detail: serialized.stack }, 500);
+    return c.json({ message: serialized.message || '카테고리별 검색 중 오류가 발생했어요.' }, 500);
   }
 });
 

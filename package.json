@@ -6,7 +6,7 @@
     "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
     "dev:client": "vite",
     "dev:server": "cd server && npm run dev",
-    "build": "vite build",
+    "build": "node build.mjs",
     "build:server": "cd server && npm run build",
     "preview": "vite preview",
     "install:all": "npm install && cd server && npm install"
@@ -15,12 +15,16 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
+  "overrides": {
+    "rollup": "npm:@rollup/wasm-node@^4.60.2"
+  },
   "devDependencies": {
+    "@rollup/wasm-node": "^4.60.2",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^9.0.1",
     "typescript": "^5.5.3",
-    "vite": "^5.4.1"
+    "vite": "^5.4.21"
   }
 }

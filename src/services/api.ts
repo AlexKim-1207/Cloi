@@ -1,4 +1,4 @@
-import type { CategoryAnalysisResult, CategorySearchResult, SearchResult } from '../types';
+import type { CategoryAnalysisResult, CategorySearchResult, SearchResponseV2, SearchResult } from '../types';
 
 // localhost이면 개발서버(3001), 그 외엔 Cloudflare Workers 직접 호출
 function getApiBase() {
@@ -15,14 +15,14 @@ function getApiBase() {
 const API_BASE = getApiBase();
 
 // ─── 분석 결과 캐시 (세션 내 동일 이미지/URL 재호출 방지) ──────────────────────
-const analysisCache = new Map<string, CategoryAnalysisResult>();
+const analysisCache = new Map<string, CategoryAnalysisResult | SearchResponseV2>();
 
 // base64 전체를 키로 쓰면 메모리 낭비 → 길이 + 앞뒤 64자로 실질적 유일 키 생성
 function imageCacheKey(base64: string): string {
   return `${base64.length}|${base64.slice(0, 64)}|${base64.slice(-64)}`;
 }
 
-export async function analyzeImage(imageBase64: string, mimeType: string): Promise<CategoryAnalysisResult> {
+export async function analyzeImage(imageBase64: string, mimeType: string): Promise<CategoryAnalysisResult | SearchResponseV2> {
   const cacheKey = `img:${imageCacheKey(imageBase64)}`;
   if (analysisCache.has(cacheKey)) {
     return analysisCache.get(cacheKey)!;
@@ -39,9 +39,22 @@ export async function analyzeImage(imageBase64: string, mimeType: string): Promi
     throw Object.assign(new Error(err.message || `분석 실패 (${res.status})`), { code: err.code });
   }
 
-  const data: CategoryAnalysisResult = await res.json();
+  const data: CategoryAnalysisResult | SearchResponseV2 = await res.json();
   analysisCache.set(cacheKey, data);
   return data;
+}
+
+export async function recordClick(
+  imageHash: string,
+  productId: string,
+  category?: string,
+): Promise<void> {
+  try {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+    await fetch(`${API_BASE}/api/analyze/click/${imageHash}/${productId}${qs}`, { method: 'POST' });
+  } catch {
+    // click tracking failure is non-critical
+  }
 }
 
 // 카테고리별 병렬 검색

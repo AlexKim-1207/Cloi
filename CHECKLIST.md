@@ -263,3 +263,138 @@
 | Day 4-5: 임베딩 + FAISS | ✅ 완료 |
 | Day 6-7: 검색 엔드포인트 | ✅ 완료 |
 | Day 8: Admin + 테스트 + 평가 | ✅ 완료 |
+
+---
+
+## 🔗 Phase 3: Node.js ↔ Python API 연동 (Sprint 3)
+> **완료: 2026-04-22** | Node.js 프록시 + 프론트엔드 v2 UI
+
+### 구현 완료 항목
+
+| 파일 | 변경 내용 | 상태 |
+|------|-----------|------|
+| `server/src/routes/analyze.ts` | FASHION_API_URL 환경변수 시 Python API 프록시, Gemini fallback 유지 | ✅ |
+| `server/src/routes/analyze.ts` | `POST /api/analyze/click/:imageHash/:productId` 클릭 이벤트 프록시 | ✅ |
+| `src/types/index.ts` | `StyleContext`, `ProductCardV2`, `SearchResponseV2` 타입 추가 | ✅ |
+| `src/services/api.ts` | `analyzeImage` v2 응답 지원, `recordClick()` 함수 추가 | ✅ |
+| `src/pages/HomePage.tsx` | v2 응답 감지 → searchByCategories 생략, 카테고리 매핑 | ✅ |
+| `src/App.tsx` | `v2Response` 상태 추가, ResultPage에 전달 | ✅ |
+| `src/pages/ResultPage.tsx` | free-form 카테고리 탭, latency/cached 뱃지, 클릭 추적 | ✅ |
+
+### 환경변수 설정
+```
+# .env (루트)
+FASHION_API_URL=http://localhost:8000   # Python API 사용 시 설정. 미설정 시 Gemini fallback.
+```
+
+---
+
+## 🗺️ 시스템 아키텍처 — 유저 사진이 어디로 가는가
+
+```
+[유저]
+  │
+  │  사진 업로드 (JPG/PNG/WEBP, 최대 10MB)
+  ▼
+[프론트엔드 — Vite/React, localhost:5173]
+  │  base64 인코딩
+  │  POST /api/analyze  { imageBase64, mimeType }
+  ▼
+[Node.js 백엔드 — Express, localhost:3001]
+  │
+  ├─ FASHION_API_URL 설정됨?
+  │    YES ──────────────────────────────────────────────┐
+  │                                                      │
+  │    NO (Gemini 직접 호출 fallback)                    │
+  │      │                                               │
+  │      ▼                                               ▼
+  │  [Gemini API]                         [Python API — FastAPI, localhost:8000]
+  │  키워드 추출                            │
+  │  → categories JSON                     │  1. SHA256 해시로 캐시 확인 (SQLite)
+  │                                        │  2. Gemini 2.5 Flash: 전체 이미지 스타일 분석
+  │  POST /api/search/categories           │     → StyleContext { overall_style, mood_tags, items }
+  │  → Naver Shopping 검색                 │  3. asyncio.gather: 아이템별 네이버쇼핑 병렬 검색
+  │  → CategorySearchResult[]             │  4. OpenCLIP ViT-L/14: 썸네일 유사도 필터 (min 0.20)
+  │                                        │  5. 응답 캐시 저장 (24h TTL)
+  │                                        │     → SearchResponseV2 { style_context, results, cached, latency_ms }
+  │                                        │
+  │    ◄───────────────────────────────────┘
+  │  Node.js: { ...SearchResponseV2, _source:'v2', _imageHash }
+  │
+  ▼
+[프론트엔드 — ResultPage]
+  │
+  ├─ v2Response 있음 → free-form 카테고리 탭 (후드티 | 스니커즈 | 와이드팬츠 ...)
+  │                    latency_ms + cached 뱃지 표시
+  │                    상품 클릭 → POST /api/analyze/click/:hash/:id (클릭 추적)
+  │
+  └─ v2Response 없음 → 기존 FashionCategory 탭 (상의 | 하의 | 신발 ...)
+                       키워드 수정 / 더 보기 기능 유지
+```
+
+---
+
+## 🏛️ 서버 관계도
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Toss 미니앱 (프론트엔드)                      │
+│                   Vite + React + TypeScript                      │
+│                       localhost:5173                             │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │  /api/* (Vite 프록시)
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Node.js 백엔드 서버                            │
+│                  Express (server/src/)                           │
+│                       localhost:3001                             │
+│                                                                  │
+│  /api/analyze       → routes/analyze.ts (이미지 분석 프록시)      │
+│  /api/analyze-url   → routes/analyzeUrl.ts (URL 분석)           │
+│  /api/search        → routes/search.ts (Naver 쇼핑 검색)        │
+│  /api/health        → inline (헬스체크)                          │
+│                                                                  │
+│  FASHION_API_URL 설정 시: Python API로 포워딩                     │
+│  미설정 시: Gemini + Naver 직접 호출 (fallback)                   │
+└───────┬──────────────────────────────────┬────────────────────┘
+        │ FASHION_API_URL=http://...8000    │ fallback
+        ▼                                  ▼
+┌───────────────────────────┐   ┌──────────────────────────────┐
+│   Python API (fashion-search/) │   │   외부 API                   │
+│   FastAPI, localhost:8000  │   │   - Gemini (google-genai)    │
+│                            │   │   - Naver Shopping API       │
+│  /api/search POST          │   └──────────────────────────────┘
+│  /api/search/{h}/click/{p} │
+│  /admin/catalog/*          │
+│  /health                   │
+│                            │
+│  내부 파이프라인:           │
+│  Gemini 2.5 Flash          │
+│  → Naver Shopping API      │
+│  → OpenCLIP ViT-L/14       │
+│  → FAISS IVFFlat (2725개)  │
+│  → SQLite 캐시 (24h TTL)   │
+└───────────────────────────┘
+
+유저 사진 저장 경로:
+  - 카탈로그 자동 추가: fashion-search/src/data/catalog/images/{sha256}.jpg
+  - Python 캐시 DB:     fashion-search/artifacts/search_cache.db
+  - 검색 로그 DB:       fashion-search/artifacts/search_logs.db
+  - FAISS 인덱스:       fashion-search/artifacts/catalog.index
+```
+
+---
+
+## ✅ 전체 진행률
+
+```
+Phase 1 (토스 미니앱 기본):  ████████████████████  100%  완료
+Phase 2 (Python ML 파이프):  ████████████████████  100%  완료
+Phase 3 (연동 + 프론트 v2):  ████████████████████  100%  완료
+```
+
+| 서버 | 실행 명령 | 상태 확인 |
+|------|-----------|-----------|
+| 프론트엔드 | `npm run dev` | http://localhost:5173 |
+| Node.js 서버 | `npm run server` | http://localhost:3001/api/health |
+| Python API | `fashion-search/.venv/Scripts/python.exe -m uvicorn apps.api.main:app --host 0.0.0.0 --port 8000` | http://localhost:8000/health |

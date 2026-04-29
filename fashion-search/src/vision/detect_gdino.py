@@ -6,8 +6,29 @@ pip install groundingdino-unofficial==0.1.0
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
+
+import torch
 
 from src.config.settings import get_settings
+
+# transformers 5.x에서 get_head_mask 제거됨 — groundingdino 호환 패치
+def _get_head_mask(self, head_mask: Optional[torch.Tensor], num_hidden_layers: int, is_attention_chunked: bool = False):
+    if head_mask is not None:
+        head_mask = head_mask.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+        head_mask = head_mask.expand(num_hidden_layers, -1, -1, -1, -1)
+        if is_attention_chunked is True:
+            head_mask = head_mask.unsqueeze(-1)
+    else:
+        head_mask = [None] * num_hidden_layers
+    return head_mask
+
+try:
+    from transformers.models.bert.modeling_bert import BertModel
+    if not hasattr(BertModel, "get_head_mask"):
+        BertModel.get_head_mask = _get_head_mask
+except Exception:
+    pass
 
 logger = logging.getLogger(__name__)
 

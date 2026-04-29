@@ -5,13 +5,57 @@ import type {
   AppError,
   CategoryAnalysisResult,
   CategorySearchResult,
+  FashionCategory,
   HistoryItem,
   LoadingStep,
+  Product,
+  SearchResponseV2,
 } from '../types';
+
+function isV2Response(r: CategoryAnalysisResult | SearchResponseV2): r is SearchResponseV2 {
+  return (r as SearchResponseV2)._source === 'v2';
+}
+
+function korToFashionCategory(kor: string): FashionCategory {
+  if (/바지|팬츠|스커트|하의|데님|진|쇼츠/.test(kor)) return 'bottom';
+  if (/신발|스니커즈|운동화|로퍼|부츠|슬리퍼|샌들/.test(kor)) return 'shoes';
+  if (/아우터|자켓|코트|패딩|점퍼|블레이저/.test(kor)) return 'outer';
+  if (/가방|백팩|토트|크로스/.test(kor)) return 'bag';
+  if (/모자|벨트|목걸이|귀걸이|반지|시계|액세서리/.test(kor)) return 'accessory';
+  return 'top';
+}
+
+function convertV2ToLegacy(v2: SearchResponseV2): CategorySearchResult[] {
+  const grouped = new Map<FashionCategory, Product[]>();
+
+  for (const [kor, v2Products] of Object.entries(v2.results)) {
+    if (v2Products.length === 0) continue;
+    const cat = korToFashionCategory(kor);
+    const products: Product[] = v2Products.map((p) => ({
+      id: p.product_id,
+      title: p.title,
+      price: p.price,
+      image: p.image_url,
+      link: p.link,
+      mallName: p.platform,
+      category: p.category,
+    }));
+    const existing = grouped.get(cat) ?? [];
+    grouped.set(cat, [...existing, ...products]);
+  }
+
+  return Array.from(grouped.entries()).map(([cat, products]) => ({
+    category: cat,
+    keywords: v2.style_context.mood_tags,
+    products,
+    total: products.length,
+    query: v2.style_context.overall_style,
+  }));
+}
 
 interface HomePageProps {
   onLoadingStart: (step: LoadingStep) => void;
-  onResult: (categoryResults: CategorySearchResult[], description: string) => void;
+  onResult: (categoryResults: CategorySearchResult[], description: string, v2Response?: SearchResponseV2) => void;
   onError: (error: AppError) => void;
   onSetRetry: (fn: () => void) => void;
   history: HistoryItem[];
@@ -56,7 +100,7 @@ export default function HomePage({
     setImageData({ base64, mimeType });
   };
 
-  const runAnalysis = async (getAnalysis: () => Promise<CategoryAnalysisResult>) => {
+  const runAnalysis = async (getAnalysis: () => Promise<CategoryAnalysisResult | SearchResponseV2>) => {
     if (isAnalyzingRef.current) return;
     isAnalyzingRef.current = true;
     onSetRetry(() => runAnalysis(getAnalysis));
@@ -66,17 +110,30 @@ export default function HomePage({
       onLoadingStart('analyzing');
       const analysis = await getAnalysis();
 
-      onLoadingStart('searching');
-      const categoryResults = await searchByCategories(analysis.categories);
-
-      if (categoryResults.length === 0) {
-        onError({
-          message: '입력한 이미지와 비슷한 상품을 찾지 못했어요. 다른 이미지를 다시 시도해 주세요.',
-          code: 'NO_RESULTS',
-          retryable: true,
-        });
+      if (isV2Response(analysis)) {
+        const legacyResults = convertV2ToLegacy(analysis);
+        if (legacyResults.length === 0) {
+          onError({
+            message: '입력한 이미지와 비슷한 상품을 찾지 못했어요. 다른 이미지를 다시 시도해 주세요.',
+            code: 'NO_RESULTS',
+            retryable: true,
+          });
+        } else {
+          onResult(legacyResults, analysis.style_context.overall_style, analysis);
+        }
       } else {
-        onResult(categoryResults, analysis.description);
+        onLoadingStart('searching');
+        const categoryResults = await searchByCategories(analysis.categories);
+
+        if (categoryResults.length === 0) {
+          onError({
+            message: '입력한 이미지와 비슷한 상품을 찾지 못했어요. 다른 이미지를 다시 시도해 주세요.',
+            code: 'NO_RESULTS',
+            retryable: true,
+          });
+        } else {
+          onResult(categoryResults, analysis.description);
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '알 수 없는 오류가 발생했어요.';

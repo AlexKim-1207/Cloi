@@ -4,7 +4,7 @@ import LoadingPage from './pages/LoadingPage';
 import ResultPage from './pages/ResultPage';
 import FavoritesPage from './pages/FavoritesPage';
 import ErrorScreen from './components/ErrorScreen';
-import type { AppState, LoadingStep, Product, AppError, HistoryItem, CategorySearchResult } from './types';
+import type { AppState, LoadingStep, Product, AppError, HistoryItem, CategorySearchResult, SearchResponseV2 } from './types';
 import { CATEGORY_LABELS as CAT_LABELS } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import './styles/global.css';
@@ -13,6 +13,7 @@ export default function App() {
   const [appState, setAppState] = useState<AppState>('home');
   const [loadingStep, setLoadingStep] = useState<LoadingStep>('analyzing');
   const [categoryResults, setCategoryResults] = useState<CategorySearchResult[]>([]);
+  const [v2Response, setV2Response] = useState<SearchResponseV2 | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [lastRetry, setLastRetry] = useState<(() => void) | null>(null);
 
@@ -28,7 +29,8 @@ export default function App() {
     setLastRetry(() => fn);
   };
 
-  const handleResult = (catResults: CategorySearchResult[], description: string) => {
+  const handleResult = (catResults: CategorySearchResult[], description: string, v2?: SearchResponseV2) => {
+    setV2Response(v2 ?? null);
     setCategoryResults(catResults);
 
     // 히스토리용 데이터: 카테고리 레이블을 키워드로, 첫 상품들을 썸네일로 사용
@@ -59,6 +61,7 @@ export default function App() {
   const handleBack = () => {
     setAppState('home');
     setError(null);
+    setV2Response(null);
   };
 
   const handleRetry = () => {
@@ -115,6 +118,7 @@ export default function App() {
           favoriteIds={favoriteIds}
           onBack={handleBack}
           onToggleFavorite={handleToggleFavorite}
+          v2Response={v2Response ?? undefined}
         />
       )}
       {appState === 'error' && error && (

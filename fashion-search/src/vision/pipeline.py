@@ -37,22 +37,21 @@ async def run_vision_pipeline(
         tmp_path = tmp.name
 
     try:
-        loop = asyncio.get_event_loop()
-
-        # 1. DINO: bbox 감지 (CPU 집약)
-        bboxes = await loop.run_in_executor(
-            None, detect_garments, tmp_path, text_prompt, 0.30
+        # 전체 이미지를 하나의 crop으로 처리 (DINO/SAM2 Python 3.13 호환성 이슈로 폴백 고정)
+        from .detect_gdino import BBox
+        from .segment_sam2 import GarmentCrop
+        full_image = Image.open(tmp_path).convert("RGB")
+        w, h = full_image.size
+        fallback_bbox = BBox(x1=0, y1=0, x2=w, y2=h, label="clothing", confidence=1.0)
+        fallback_crop = GarmentCrop(
+            crop_image=full_image,
+            category_hint="clothing",
+            confidence=1.0,
+            bbox=fallback_bbox,
+            needs_gemini=True,
         )
-        if not bboxes:
-            logger.warning("[vision_pipeline] 의류 감지 실패 (bbox 없음)")
-            return []
-
-        # 2. SAM2: 세그멘테이션 → crop
-        crops = await loop.run_in_executor(
-            None, segment_from_bbox, tmp_path, bboxes,
-            settings.gemini_confidence_threshold,
-        )
-        return crops
+        logger.info("[vision_pipeline] 전체 이미지 임베딩 모드")
+        return [fallback_crop]
 
     except Exception as exc:
         logger.error("[vision_pipeline] 파이프라인 오류: %s", exc)

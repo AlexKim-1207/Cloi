@@ -59,7 +59,12 @@ class FAISSStore(VectorStore):
             json.dump(self.meta, f, ensure_ascii=False)
 
     def load(self, path: str) -> None:
-        self.index = faiss.read_index(path)
+        import shutil, tempfile
+        # FAISS C++ 백엔드가 한글 경로를 못 읽는 Windows 버그 우회 — ASCII 임시 경로로 복사 후 로드
+        with tempfile.TemporaryDirectory(prefix="faiss_") as tmp:
+            tmp_index = os.path.join(tmp, "tmp.index")
+            shutil.copy2(path, tmp_index)
+            self.index = faiss.read_index(tmp_index)
         self.index.nprobe = self.nprobe
         meta_path = path.replace(".index", "_meta.json")
         if os.path.exists(meta_path):

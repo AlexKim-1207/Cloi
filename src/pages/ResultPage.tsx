@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import ProductCard from '../components/ProductCard';
-import { searchProducts } from '../services/api';
-import type { CategorySearchResult, FashionCategory, Product } from '../types';
+import { recordClick, searchProducts } from '../services/api';
+import type { CategorySearchResult, FashionCategory, Product, ProductCardV2, SearchResponseV2 } from '../types';
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '../types';
 
 interface ResultPageProps {
@@ -9,10 +9,28 @@ interface ResultPageProps {
   favoriteIds: Set<string>;
   onBack: () => void;
   onToggleFavorite: (product: Product) => void;
+  v2Response?: SearchResponseV2;
 }
 
 type SortType = 'sim' | 'price_asc' | 'price_desc';
 type PlatformFilter = 'all' | '무신사' | '에이블리' | '지그재그';
+
+function v2ToProduct(p: ProductCardV2): Product {
+  return {
+    id: p.product_id,
+    title: p.title,
+    price: p.price,
+    image: p.image_url,
+    link: p.link,
+    mallName: p.platform,
+    category: p.category,
+  };
+}
+
+function getCategoryLabel(cat: string): string {
+  if (cat in CATEGORY_LABELS) return CATEGORY_LABELS[cat as FashionCategory];
+  return cat;
+}
 
 function BackIcon() {
   return (
@@ -37,16 +55,20 @@ export default function ResultPage({
   favoriteIds,
   onBack,
   onToggleFavorite,
+  v2Response,
 }: ResultPageProps) {
-  const availableCategories = useMemo(
-    () =>
-      CATEGORY_ORDER.filter((category) =>
-        categoryResults.some((result) => result.category === category && result.products.length > 0),
-      ),
-    [categoryResults],
-  );
+  const availableCategories = useMemo(() => {
+    if (v2Response) {
+      return Object.keys(v2Response.results).filter(
+        (cat) => (v2Response.results[cat]?.length ?? 0) > 0,
+      );
+    }
+    return CATEGORY_ORDER.filter((category) =>
+      categoryResults.some((result) => result.category === category && result.products.length > 0),
+    );
+  }, [categoryResults, v2Response]);
 
-  const [activeTab, setActiveTab] = useState<FashionCategory>(availableCategories[0] ?? 'top');
+  const [activeTab, setActiveTab] = useState<string>(availableCategories[0] ?? 'top');
   const [sortType, setSortType] = useState<SortType>('sim');
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>('all');
   const [maxPrice, setMaxPrice] = useState<number | null>(null);
@@ -55,28 +77,40 @@ export default function ResultPage({
   const [isReSearching, setIsReSearching] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [localResults, setLocalResults] = useState<CategorySearchResult[]>(categoryResults);
-  const [offsets, setOffsets] = useState<Partial<Record<FashionCategory, number>>>({});
-  const activeResult = localResults.find((result) => result.category === activeTab);
+  const [offsets, setOffsets] = useState<Record<string, number>>({});
+
+  const activeResult = v2Response ? null : localResults.find((result) => result.category === activeTab);
   const [editedKeywords, setEditedKeywords] = useState<string[]>(activeResult?.keywords ?? []);
 
   useEffect(() => {
+    if (v2Response) {
+      const firstCat = Object.keys(v2Response.results).find(
+        (cat) => (v2Response.results[cat]?.length ?? 0) > 0,
+      );
+      if (firstCat) setActiveTab(firstCat);
+      return;
+    }
     setLocalResults(categoryResults);
     const firstCategory = CATEGORY_ORDER.find((category) =>
       categoryResults.some((result) => result.category === category && result.products.length > 0),
     );
     if (firstCategory) setActiveTab(firstCategory);
-  }, [categoryResults]);
+  }, [categoryResults, v2Response]);
 
   useEffect(() => {
     const result = localResults.find((item) => item.category === activeTab);
     setEditedKeywords(result?.keywords ?? []);
   }, [activeTab, localResults]);
 
-  const filteredProducts = useMemo(() => {
-    const result = localResults.find((item) => item.category === activeTab);
-    if (!result) return [];
+  const baseProducts = useMemo(() => {
+    if (v2Response) {
+      return (v2Response.results[activeTab] ?? []).map(v2ToProduct);
+    }
+    return localResults.find((item) => item.category === activeTab)?.products ?? [];
+  }, [activeTab, localResults, v2Response]);
 
-    let list = [...result.products];
+  const filteredProducts = useMemo(() => {
+    let list = [...baseProducts];
     if (platformFilter !== 'all') {
       list = list.filter((product) => product.mallName.includes(platformFilter));
     }
@@ -89,10 +123,19 @@ export default function ResultPage({
       list.sort((a, b) => b.price - a.price);
     }
     return list;
-  }, [activeTab, localResults, maxPrice, platformFilter, sortType]);
+  }, [baseProducts, platformFilter, maxPrice, sortType]);
+
+  const totalCount = v2Response
+    ? Object.values(v2Response.results).reduce((sum, items) => sum + items.length, 0)
+    : localResults.reduce((sum, r) => sum + r.products.length, 0);
+
+  const getTabCount = (cat: string): number => {
+    if (v2Response) return v2Response.results[cat]?.length ?? 0;
+    return localResults.find((r) => r.category === cat)?.products.length ?? 0;
+  };
 
   const handleLoadMore = async () => {
-    if (!activeResult) return;
+    if (!activeResult || v2Response) return;
     setIsLoadingMore(true);
 
     try {
@@ -114,7 +157,7 @@ export default function ResultPage({
   };
 
   const handleReSearch = async () => {
-    if (!activeResult || editedKeywords.length === 0) return;
+    if (!activeResult || editedKeywords.length === 0 || v2Response) return;
     setIsReSearching(true);
 
     try {
@@ -135,10 +178,13 @@ export default function ResultPage({
     }
   };
 
+  const displayKeywords = v2Response
+    ? v2Response.style_context.mood_tags
+    : (activeResult?.keywords ?? []);
+
   const handleShare = async () => {
-    const labels = availableCategories.map((category) => CATEGORY_LABELS[category]).join(', ');
-    const total = categoryResults.reduce((sum, item) => sum + item.products.length, 0);
-    const text = `Cloi 검색 결과\n카테고리: ${labels}\n총 ${total}개 상품`;
+    const labels = availableCategories.map(getCategoryLabel).join(', ');
+    const text = `Cloi 검색 결과\n카테고리: ${labels}\n총 ${totalCount}개 상품`;
 
     if (navigator.share) {
       try {
@@ -199,17 +245,36 @@ export default function ResultPage({
               <path d="M22 4C22 4 18 8 12 10L4 14L8 26L16 22V68H44V22L52 26L56 14L48 10C42 8 38 4 38 4C36 8 33 10 30 10C27 10 24 8 22 4Z" fill="#b6a89c" />
             </svg>
           </div>
-          <div>
+          <div style={{ flex: 1 }}>
             <p style={{ fontSize: 12, color: '#b6a89c' }}>업로드한 사진과 비슷한 상품</p>
-            <p style={{ fontSize: 13, color: '#8c7c71', fontWeight: 500, marginTop: 1 }}>
-              총 {localResults.reduce((sum, r) => sum + r.products.length, 0)}개 발견
-            </p>
+            {v2Response && (
+              <p style={{ fontSize: 12, color: '#aa6d82', fontWeight: 500, marginTop: 1 }}>
+                {v2Response.style_context.overall_style}
+              </p>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <p style={{ fontSize: 13, color: '#8c7c71', fontWeight: 500 }}>
+                총 {totalCount}개 발견
+              </p>
+              {v2Response && (
+                <>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#ede5d8', color: '#8c7c71' }}>
+                    {v2Response.latency_ms}ms
+                  </span>
+                  {v2Response.cached && (
+                    <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'rgba(195, 132, 154, 0.15)', color: '#aa6d82' }}>
+                      캐시
+                    </span>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         <div className="capsule-row" style={{ paddingBottom: 12 }}>
           {availableCategories.map((category) => {
-            const count = localResults.find((result) => result.category === category)?.products.length ?? 0;
+            const count = getTabCount(category);
             const isActive = activeTab === category;
 
             return (
@@ -233,7 +298,7 @@ export default function ResultPage({
                   boxShadow: isActive ? '0 12px 24px rgba(170, 109, 130, 0.22)' : 'none',
                 }}
               >
-                <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{CATEGORY_LABELS[category]}</span>
+                <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{getCategoryLabel(category)}</span>
                 <span style={{ display: 'block', marginTop: 3, fontSize: 11, opacity: isActive ? 0.84 : 0.6 }}>
                   {count}개
                 </span>
@@ -243,21 +308,23 @@ export default function ResultPage({
         </div>
 
         <div className="capsule-row" style={{ alignItems: 'center', paddingBottom: 4 }}>
-          {(activeResult?.keywords ?? []).slice(0, 5).map((keyword) => (
+          {displayKeywords.slice(0, 5).map((keyword) => (
             <span key={keyword} className="chip chip-active">
               #{keyword}
             </span>
           ))}
-          <button
-            type="button"
-            className="chip"
-            onClick={() => {
-              setEditedKeywords(activeResult?.keywords ?? []);
-              setShowKeywordEdit(true);
-            }}
-          >
-            키워드 수정
-          </button>
+          {!v2Response && (
+            <button
+              type="button"
+              className="chip"
+              onClick={() => {
+                setEditedKeywords(activeResult?.keywords ?? []);
+                setShowKeywordEdit(true);
+              }}
+            >
+              키워드 수정
+            </button>
+          )}
           <button
             type="button"
             className={`chip${showFilter ? ' chip-active' : ''}`}
@@ -314,7 +381,7 @@ export default function ResultPage({
         )}
       </div>
 
-      {showKeywordEdit && (
+      {showKeywordEdit && !v2Response && (
         <div
           style={{
             position: 'fixed',
@@ -339,7 +406,7 @@ export default function ResultPage({
             }}
           >
             <h3 style={{ fontSize: 18, fontWeight: 600, color: '#2c241f' }}>
-              {CATEGORY_LABELS[activeTab]} 키워드 조정
+              {getCategoryLabel(activeTab)} 키워드 조정
             </h3>
             <p style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
               마음에 들지 않는 키워드는 제거하고, 다시 검색해서 결과를 새로 받아올 수 있어요.
@@ -426,20 +493,30 @@ export default function ResultPage({
             }}
           >
             {filteredProducts.map((product) => (
-              <ProductCard
+              <div
                 key={product.id}
-                product={product}
-                isFavorite={favoriteIds.has(product.id)}
-                onToggleFavorite={onToggleFavorite}
-              />
+                onClick={
+                  v2Response
+                    ? () => void recordClick(v2Response._imageHash, product.id, activeTab)
+                    : undefined
+                }
+              >
+                <ProductCard
+                  product={product}
+                  isFavorite={favoriteIds.has(product.id)}
+                  onToggleFavorite={v2Response ? undefined : onToggleFavorite}
+                />
+              </div>
             ))}
           </div>
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8 }}>
-          <button type="button" className="btn-secondary" onClick={handleLoadMore} disabled={isLoadingMore}>
-            {isLoadingMore ? '더 불러오는 중...' : `${CATEGORY_LABELS[activeTab]} 더 보기`}
-          </button>
+          {!v2Response && (
+            <button type="button" className="btn-secondary" onClick={handleLoadMore} disabled={isLoadingMore}>
+              {isLoadingMore ? '더 불러오는 중...' : `${getCategoryLabel(activeTab)} 더 보기`}
+            </button>
+          )}
           <button type="button" className="btn-primary" onClick={onBack}>
             다른 사진 찾기
           </button>

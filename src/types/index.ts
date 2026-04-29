@@ -70,3 +70,39 @@ export interface AppError {
   code?: string;
   retryable: boolean;
 }
+
+// ─── Python Fashion API v2 types ─────────────────────────────────────────────
+
+export interface ItemDetailV2 {
+  category: string;
+  color?: string;
+  fit?: string;
+  material?: string;
+}
+
+export interface StyleContext {
+  overall_style: string;
+  mood_tags: string[];
+  items: ItemDetailV2[];
+  confidence: number;
+}
+
+export interface ProductCardV2 {
+  product_id: string;
+  title: string;
+  price: number;
+  image_url: string;
+  link: string;
+  platform: string;
+  category: string;
+  similarity_score: number;
+}
+
+export interface SearchResponseV2 {
+  style_context: StyleContext;
+  results: Record<string, ProductCardV2[]>;
+  cached: boolean;
+  latency_ms: number;
+  _source: 'v2';
+  _imageHash: string;
+}
