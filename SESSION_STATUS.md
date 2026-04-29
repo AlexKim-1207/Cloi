@@ -1,8 +1,8 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 2
-- 다음 세션: SESSION 3
+- 완료 세션: SESSION 3
+- 다음 세션: SESSION 4
 
 ---
 
@@ -12,8 +12,20 @@
 |------|------|------|----------|
 | SESSION 1 | 임베더 3종 구현 + 추상화 | ✅ 완료 | - |
 | SESSION 2 | 카탈로그 500장 + 인덱스 3세트 | ✅ 완료 | - |
-| SESSION 3 | Ground Truth + A/B 측정 + 비교표 | ⏳ 대기 | - |
+| SESSION 3 | Ground Truth + A/B 측정 + 비교표 | ✅ 완료 | - |
 | SESSION 4 | 우승모델 채택 + 배포 + 연동 | ⏳ 대기 | - |
+
+---
+
+## SESSION 3: ✅ 완료
+- Ground Truth 50쿼리 생성 (`eval/queries/` 50장, `eval/ground_truth.jsonl`)
+- A/B 측정 완료 (3종 임베더, --skip-vision 플래그):
+  - openclip_vitl14  → Recall@10=0.8600, Recall@50=1.0000, MRR=0.3495, p50=1126ms
+  - fashion_clip     → Recall@10=0.8800, Recall@50=1.0000, MRR=0.3514, p50=130ms
+  - marqo_fashion_siglip → Recall@10=0.0000 (모델 가중치 불일치 — SiglipModel random init)
+- 우승 모델: **fashion_clip** (종합점수=0.8016, Recall@10=0.88, p50=130ms)
+- 스크립트: `scripts/generate_eval_set.py`, `eval/runner.py`, `eval/compare.py`
+- 결과: `eval/results/comparison.md`
 
 ---
 
@@ -47,7 +59,7 @@
 
 ```bash
 cd "C:\Users\Alex KIM\Desktop\사업 프로젝트\인앱토스 1"
-claude --dangerously-skip-permissions "CLAUDE.md와 fashion-search/docs/EXECUTION_PLAN.md를 읽고 SESSION 3 작업을 진행해. 완료 후 SESSION_STATUS.md를 업데이트하고 git commit해."
+claude --dangerously-skip-permissions "CLAUDE.md와 fashion-search/docs/EXECUTION_PLAN.md SESSION 4 실행. 우승모델=fashion_clip"
 ```
 
 ---
@@ -75,12 +87,13 @@ claude --dangerously-skip-permissions "CLAUDE.md와 fashion-search/docs/EXECUTIO
 - [x] git commit: `feat: step2 catalog seed and index build`
 
 ### SESSION 3 산출물
-- [ ] `fashion-search/scripts/generate_eval_set.py`
-- [ ] `fashion-search/eval/queries/` 50장
-- [ ] `fashion-search/eval/ground_truth.jsonl`
-- [ ] `fashion-search/eval/runner.py`
-- [ ] `fashion-search/eval/results/comparison.md` (우승 모델 명시)
-- [ ] git commit: `feat: step3 eval baseline measurement`
+- [x] `fashion-search/scripts/generate_eval_set.py`
+- [x] `fashion-search/eval/queries/` 50장
+- [x] `fashion-search/eval/ground_truth.jsonl`
+- [x] `fashion-search/eval/runner.py`
+- [x] `fashion-search/eval/compare.py`
+- [x] `fashion-search/eval/results/comparison.md` (우승 모델: fashion_clip)
+- [x] git commit: `feat: step3 eval baseline measurement`
 
 ### SESSION 4 산출물
 - [ ] 우승 모델 settings.py 반영
