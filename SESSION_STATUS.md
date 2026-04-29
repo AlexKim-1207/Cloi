@@ -1,8 +1,46 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 5 ✅
-- 다음 세션: 없음 (전체 완료)
+- 완료 세션: SESSION 6 ✅
+- 다음 세션: 선택사항 (Rate Limiting, Cold Start 개선)
+
+## SESSION 6: ✅ 완료 (2026-04-29) — 프로덕션 보안/안정성
+
+### E2E 검증
+- Cloud Run /health ✅ (faiss_size=2725, embedder=fashion_clip, revision 00006)
+- CF Worker /api/health ✅ (Gemini+Naver 키 존재)
+- CF Worker /api/search ✅ (Naver 검색 14건 정상)
+- Gemini API 503 외부 장애 (클라우드 측 일시적 과부하)
+
+### 발견된 취약점 (전체 수정 완료)
+| 심각도 | 취약점 | 수정 |
+|--------|--------|------|
+| Critical | Admin 엔드포인트 인증 없음 | APIKeyHeader + Depends(_require_admin) ✅ |
+| High | CORS allow_origins=["*"] (Cloud Run) | 도메인 화이트리스트 ✅ |
+| High | 파일 업로드 크기 제한 없음 | 10MB 제한 (HTTP 413) ✅ |
+| High | Gemini 에러 내부 정보 노출 | 제네릭 메시지 반환 ✅ |
+| High | CF Worker → Cloud Run 포맷 불일치 (JSON vs multipart) | base64→multipart 변환 ✅ |
+| Medium | MIME 타입 검증 없음 | image/* 허용 목록 (HTTP 415) ✅ |
+| Medium | FastAPI /docs 프로덕션 공개 | DEBUG=false → 404 ✅ |
+| Low | 미사용 import (numpy), 타입 누락 | 제거 + 타입 추가 ✅ |
+
+### 검증 결과
+- Admin auth: 토큰 없음 → 401 ✅, 올바른 토큰 → 200 ✅
+- 파일 크기: 11MB → 413 ✅
+- MIME: application/pdf → 415 ✅
+- /docs: 404 ✅
+- /openapi.json: 404 ✅
+
+### 배포 완료
+- Cloud Run revision: fashion-search-00006-frs ✅
+- CF Worker: cloi-api ✅
+- CF Pages: https://f350f967.cloi.pages.dev ✅
+- git push: 6a11add ✅
+
+### 향후 과제
+- Rate Limiting (Cloudflare Rate Limiting Rules 또는 middleware)
+- Gemini API 503 fallback 전략 (이미지 분석 실패 시 키워드 기반 대체)
+- Cold Start 최적화 (Cloud Run min-instances=1 고려)
 
 ## SESSION 5: ✅ 완료 (2026-04-29)
 - E2E 테스트: Cloud Run /health ✅ (faiss_size=2725), CF Worker /health ✅
