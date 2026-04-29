@@ -293,6 +293,35 @@ app.post('/api/analyze', async (c) => {
     if (imageBase64.length > 14 * 1024 * 1024)
       return c.json({ message: '이미지가 너무 커요. 10MB 이하로 업로드해 주세요.' }, 400);
 
+    // Cloud Run v3 파이프라인 우선 시도
+    const fashionSearchUrl = c.env.FASHION_SEARCH_URL;
+    if (fashionSearchUrl) {
+      try {
+        const binary = atob(imageBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: mimeType });
+        const form = new FormData();
+        form.append('file', blob, 'image.jpg');
+
+        const upstream = await fetch(`${fashionSearchUrl}/api/search`, {
+          method: 'POST',
+          body: form,
+          signal: AbortSignal.timeout(30000),
+        });
+
+        if (upstream.ok) {
+          const data = await upstream.json() as Record<string, unknown>;
+          const imageHash = (data.image_hash as string) || '';
+          console.log('[/api/analyze] Cloud Run v3 success, tabs:', (data.tabs as unknown[])?.length ?? 0);
+          return c.json({ ...data, _source: 'v3', _imageHash: imageHash });
+        }
+        console.warn('[/api/analyze] Cloud Run upstream error', upstream.status, '→ Gemini fallback');
+      } catch (upstreamErr) {
+        console.warn('[/api/analyze] Cloud Run timeout/error, Gemini fallback:', serializeError(upstreamErr));
+      }
+    }
+
     if (!c.env.GEMINI_API_KEY) {
       console.error('[/api/analyze] GEMINI_API_KEY is missing');
       return c.json({ message: 'GEMINI_API_KEY 환경변수가 설정되지 않았어요.' }, 500);
@@ -397,7 +426,7 @@ app.post('/api/search/categories', async (c) => {
   }
 });
 
-// ─── POST /api/search-image — Phase 2 ML 유사 이미지 검색 ──────────────────────
+// ─── POST /api/search-image — Phase 2/3 ML 유사 이미지 검색 ────────────────────
 app.post('/api/search-image', async (c) => {
   console.log('[POST /api/search-image] request received');
   const fashionSearchUrl = c.env.FASHION_SEARCH_URL;
@@ -419,6 +448,9 @@ app.post('/api/search-image', async (c) => {
 
   if (!imageBase64) return c.json({ message: 'imageBase64가 필요해요.' }, 400);
 
+  // sort_by 쿼리파라미터 Cloud Run에 전달
+  const sortBy = new URL(c.req.url).searchParams.get('sort_by') || 'relevance';
+
   // base64 → Blob → multipart/form-data (Cloud Run expects UploadFile)
   try {
     const binary = atob(imageBase64);
@@ -428,11 +460,10 @@ app.post('/api/search-image', async (c) => {
     const form = new FormData();
     form.append('file', blob, 'image.jpg');
 
-    const upstream = await fetch(`${fashionSearchUrl}/api/search`, {
-      method: 'POST',
-      body: form,
-      signal: AbortSignal.timeout(30000),
-    });
+    const upstream = await fetch(
+      `${fashionSearchUrl}/api/search?sort_by=${encodeURIComponent(sortBy)}`,
+      { method: 'POST', body: form, signal: AbortSignal.timeout(30000) },
+    );
 
     if (upstream.ok) {
       const data = await upstream.json();
@@ -453,6 +484,26 @@ app.post('/api/search-image', async (c) => {
     const s = serializeError(err);
     return c.json({ message: s.message }, 500);
   }
+});
+
+// ─── POST /api/click — 클릭 이벤트 Cloud Run 전달 ────────────────────────────
+app.post('/api/click', async (c) => {
+  const fashionSearchUrl = c.env.FASHION_SEARCH_URL;
+  if (!fashionSearchUrl) return c.json({ ok: true });
+
+  try {
+    const body = await c.req.json();
+    await fetch(`${fashionSearchUrl}/api/click`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch (err) {
+    console.warn('[/api/click] forward failed:', serializeError(err));
+  }
+
+  return c.json({ ok: true });
 });
 
 // 404

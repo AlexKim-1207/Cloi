@@ -1,8 +1,47 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 6 ✅
-- 다음 세션: 선택사항 (Rate Limiting, Cold Start 개선)
+- 완료 세션: SESSION 7 ✅
+- 다음 세션: 선택사항 (Rate Limiting, Cold Start 개선, A/B 테스트)
+
+## SESSION 7: ✅ 완료 (2026-04-29) — 멀티아이템 탐지 + FashionCLIP v3 파이프라인
+
+### 주요 구현
+- **멀티아이템 탐지**: Gemini가 이미지 전체 스캔 → top_outer/top_inner/outer/bottom/dress/shoes/bag/accessory_* 탭별 분리
+- **복합 랭킹**: `final_score = clip_sim*0.45 + mood_match*0.30 + price_fit*0.25`
+- **FashionCLIP 속성 분류**: AttributeClassifier — neckline/fit/sleeve/material/mood/price_tier 추출
+- **GCS 유저 이미지 저장**: fire-and-forget (google-cloud-storage 없으면 graceful disable)
+- **클릭 피드백 v2**: 7개 컬럼 추가 (final_score, rank_position, mood_label 등)
+- **v3 UI**: 탭별 카드 + match_score % 배지 + sort_by 파라미터
+
+### 신규 파일
+| 파일 | 설명 |
+|------|------|
+| `fashion-search/src/ranking/attribute_classifier.py` | FashionCLIP zero-shot 속성 분류 |
+| `fashion-search/src/ranking/mood_ranker.py` | 복합 랭킹 공식 |
+| `fashion-search/src/storage/user_image_store.py` | GCS fire-and-forget 저장 |
+| `fashion-search/src/llm/schemas.py` | DetectedItem + MultiItemStyleContext |
+| `fashion-search/scripts/integration_test_v2.py` | v3 E2E 6개 TC |
+
+### 수정 파일
+- `apps/api/routes_search.py` — v3 파이프라인 전면 재작성
+- `apps/api/schemas.py` — SearchResponse (tabs/ProductCard/TabSection)
+- `apps/api/main.py` — AttributeClassifier 싱글턴 추가
+- `src/llm/style_analyzer.py` — MultiItemStyleContext 분석
+- `src/embedding/fashion_clip_embedder.py` — embed_single + encode_text
+- `src/search/parallel_search.py` — search_all_items_v2
+- `src/logging/search_logger.py` — 클릭 v2 컬럼 마이그레이션
+- `server/src/worker.ts` — v3 프록시 + /api/click 추가
+- `src/types/index.ts` + `src/services/api.ts` + UI 3파일 — v3 연동
+
+### 배포
+- Cloud Run revision: fashion-search-00009-* ✅
+- GCS bucket: gs://cloi-user-images ✅
+- CF Worker: cloi-api (v3 프록시) ✅
+- CF Pages: https://11aa492c.cloi.pages.dev ✅
+
+### 스키마 버그 수정
+- `DetectedItem.is_inner: bool = False` → `bool` (google-genai 1.0.0 default value 비지원)
 
 ## SESSION 6: ✅ 완료 (2026-04-29) — 프로덕션 보안/안정성
 

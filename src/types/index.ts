@@ -40,11 +40,10 @@ export interface CategorySearchResult {
   query: string;
 }
 
-// 하위 호환용 (analyzeImage 반환 타입으로 유지)
 export interface AnalysisKeywords {
-  keywords: string[];    // Gemini가 추출한 패션 키워드 (전체 카테고리 합산)
-  searchQuery: string;   // 네이버 쇼핑 검색용 조합 쿼리
-  description: string;   // 분석 결과 설명 (한국어)
+  keywords: string[];
+  searchQuery: string;
+  description: string;
 }
 
 export interface SearchResult {
@@ -58,7 +57,7 @@ export interface HistoryItem {
   timestamp: number;
   keywords: string[];
   searchQuery: string;
-  products: Product[];          // 썸네일용 (카테고리 전체 합산 앞 6개)
+  products: Product[];
   categoryResults?: CategorySearchResult[];
 }
 
@@ -104,5 +103,44 @@ export interface SearchResponseV2 {
   cached: boolean;
   latency_ms: number;
   _source: 'v2';
+  _imageHash: string;
+}
+
+// ─── Python Fashion API v3 types (멀티아이템 + 탭 + 무드랭킹) ─────────────────
+
+export interface ProductCardV3 {
+  id: string;
+  title: string;
+  image: string;
+  price: number | null;
+  link: string;
+  mall_name: string | null;
+  match_score: number;
+  clip_similarity: number;
+  mood_match: number;
+  price_fit: number;
+}
+
+export interface TabSectionV3 {
+  tab_id: string;
+  label: string;
+  description: string;
+  items: ProductCardV3[];
+}
+
+export interface SearchResponseV3 {
+  image_hash: string;
+  overall_style: string;
+  detected_attributes: {
+    mood?: string;
+    price_tier?: string;
+    price_range?: number[];
+    neckline?: string;
+    fit?: string;
+  };
+  tabs: TabSectionV3[];
+  total_latency_ms: number;
+  cache_hit: boolean;
+  _source: 'v3';
   _imageHash: string;
 }

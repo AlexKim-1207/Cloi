@@ -20,6 +20,16 @@ gcloud run deploy "${SERVICE_NAME}" \
   --port=8080 \
   --set-env-vars="EMBEDDER_NAME=fashion_clip,KMP_DUPLICATE_LIB_OK=TRUE,GOOGLE_API_KEY=${GOOGLE_API_KEY},ADMIN_TOKEN=${ADMIN_TOKEN},DEBUG=false,NAVER_CLIENT_ID=${NAVER_CLIENT_ID:-},NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET:-}"
 
+# GCS 버킷 생성 (이미 있으면 무시)
+gsutil mb -p "${PROJECT_ID}" -l "${REGION}" gs://cloi-user-images 2>/dev/null || true
+
+# Cloud Run 서비스 계정에 storage.objectAdmin 권한 부여
+PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin" \
+  --condition=None 2>/dev/null || true
+
 URL=$(gcloud run services describe "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
   --region="${REGION}" \

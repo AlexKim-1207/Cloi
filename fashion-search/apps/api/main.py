@@ -15,8 +15,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 from src.cache.result_cache import init_cache_db
 from src.config.settings import get_settings
 from src.embedding import ImageEmbedder, get_embedder
+from src.embedding.fashion_clip_embedder import FashionCLIPEmbedder
 from src.llm.gemini_client import get_client
 from src.logging.search_logger import init_db as init_search_db
+from src.ranking.attribute_classifier import AttributeClassifier
 from src.search.faiss_store import FAISSStore
 
 from .routes_search import router as search_router
@@ -28,6 +30,7 @@ logger = logging.getLogger(__name__)
 class AppState:
     faiss_store: FAISSStore | None = None
     embedder: ImageEmbedder | None = None
+    attribute_classifier: AttributeClassifier | None = None
 
 
 app_state = AppState()
@@ -42,20 +45,27 @@ async def lifespan(app: FastAPI):
     # 1. SQLite 캐시 DB 초기화
     init_cache_db()
 
-    # 2. 검색 로그 DB 초기화 (v2)
+    # 2. 검색 로그 DB 초기화
     await init_search_db()
 
     # 3. Gemini 클라이언트 초기화
     get_client()
     logger.info("[lifespan] Gemini 클라이언트 초기화 완료")
 
-    # 4. Embedder preload (settings.embedder_name 기준)
+    # 4. Embedder preload
     embedder = get_embedder(settings.embedder_name)
     embedder.load()
     app_state.embedder = embedder
     logger.info("[lifespan] Embedder 로드 완료: %s", settings.embedder_name)
 
-    # 5. FAISS 인덱스 로드 (admin 라우터용 — 없으면 경고만)
+    # 5. AttributeClassifier (FashionCLIP 인스턴스 재사용)
+    if isinstance(embedder, FashionCLIPEmbedder):
+        app_state.attribute_classifier = AttributeClassifier(embedder)
+        logger.info("[lifespan] AttributeClassifier 초기화 완료")
+    else:
+        logger.warning("[lifespan] FashionCLIPEmbedder 아님 — AttributeClassifier 비활성화")
+
+    # 6. FAISS 인덱스 로드 (admin 라우터용 — 없으면 경고만)
     index_path = str(PROJECT_ROOT / settings.artifacts_dir / "catalog.index")
     if os.path.exists(index_path):
         store = FAISSStore(nprobe=settings.faiss_nprobe)
@@ -81,9 +91,9 @@ _ALLOWED_ORIGINS = [
 ]
 
 app = FastAPI(
-    title="Fashion Search API v2",
-    version="2.0.0",
-    description="패션 이미지 → Gemini 스타일 분석 → 네이버쇼핑 병렬 검색 → CLIP 필터",
+    title="Fashion Search API v3",
+    version="3.0.0",
+    description="멀티아이템 탐지 + FashionCLIP 속성추출 + 무드기반 소팅",
     lifespan=lifespan,
     docs_url="/docs" if _settings.debug else None,
     redoc_url="/redoc" if _settings.debug else None,
@@ -105,7 +115,8 @@ app.include_router(admin_router, prefix="/admin")
 async def health():
     return {
         "status": "ok",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "embedder": app_state.embedder.name if app_state.embedder else None,
+        "attribute_classifier": app_state.attribute_classifier is not None,
         "faiss_size": app_state.faiss_store.size() if app_state.faiss_store else 0,
     }

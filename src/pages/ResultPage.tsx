@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import ProductCard from '../components/ProductCard';
-import { recordClick, searchProducts } from '../services/api';
-import type { CategorySearchResult, FashionCategory, Product, ProductCardV2, SearchResponseV2 } from '../types';
+import { recordClick, recordClickV3, searchProducts } from '../services/api';
+import type {
+  CategorySearchResult,
+  FashionCategory,
+  Product,
+  ProductCardV2,
+  ProductCardV3,
+  SearchResponseV2,
+  SearchResponseV3,
+  TabSectionV3,
+} from '../types';
 import { CATEGORY_LABELS, CATEGORY_ORDER } from '../types';
 
 interface ResultPageProps {
@@ -10,6 +19,7 @@ interface ResultPageProps {
   onBack: () => void;
   onToggleFavorite: (product: Product) => void;
   v2Response?: SearchResponseV2;
+  v3Response?: SearchResponseV3;
 }
 
 type SortType = 'sim' | 'price_asc' | 'price_desc';
@@ -24,6 +34,18 @@ function v2ToProduct(p: ProductCardV2): Product {
     link: p.link,
     mallName: p.platform,
     category: p.category,
+  };
+}
+
+function v3ToProduct(p: ProductCardV3): Product {
+  return {
+    id: p.id,
+    title: p.title,
+    price: p.price ?? 0,
+    image: p.image,
+    link: p.link,
+    mallName: p.mall_name ?? '',
+    category: '',
   };
 }
 
@@ -56,9 +78,16 @@ export default function ResultPage({
   onBack,
   onToggleFavorite,
   v2Response,
+  v3Response,
 }: ResultPageProps) {
+  const isV3 = Boolean(v3Response);
+  const isV2 = Boolean(v2Response) && !isV3;
+
   const availableCategories = useMemo(() => {
-    if (v2Response) {
+    if (isV3 && v3Response) {
+      return v3Response.tabs.filter((t) => t.items.length > 0).map((t) => t.tab_id);
+    }
+    if (isV2 && v2Response) {
       return Object.keys(v2Response.results).filter(
         (cat) => (v2Response.results[cat]?.length ?? 0) > 0,
       );
@@ -66,7 +95,7 @@ export default function ResultPage({
     return CATEGORY_ORDER.filter((category) =>
       categoryResults.some((result) => result.category === category && result.products.length > 0),
     );
-  }, [categoryResults, v2Response]);
+  }, [categoryResults, v2Response, v3Response, isV2, isV3]);
 
   const [activeTab, setActiveTab] = useState<string>(availableCategories[0] ?? 'top');
   const [sortType, setSortType] = useState<SortType>('sim');
@@ -79,11 +108,20 @@ export default function ResultPage({
   const [localResults, setLocalResults] = useState<CategorySearchResult[]>(categoryResults);
   const [offsets, setOffsets] = useState<Record<string, number>>({});
 
-  const activeResult = v2Response ? null : localResults.find((result) => result.category === activeTab);
+  const activeResult = !isV2 && !isV3 ? localResults.find((result) => result.category === activeTab) : null;
   const [editedKeywords, setEditedKeywords] = useState<string[]>(activeResult?.keywords ?? []);
 
+  const activeV3Tab: TabSectionV3 | null = isV3 && v3Response
+    ? v3Response.tabs.find((t) => t.tab_id === activeTab) ?? null
+    : null;
+
   useEffect(() => {
-    if (v2Response) {
+    if (isV3 && v3Response) {
+      const firstTab = v3Response.tabs.find((t) => t.items.length > 0);
+      if (firstTab) setActiveTab(firstTab.tab_id);
+      return;
+    }
+    if (isV2 && v2Response) {
       const firstCat = Object.keys(v2Response.results).find(
         (cat) => (v2Response.results[cat]?.length ?? 0) > 0,
       );
@@ -95,7 +133,7 @@ export default function ResultPage({
       categoryResults.some((result) => result.category === category && result.products.length > 0),
     );
     if (firstCategory) setActiveTab(firstCategory);
-  }, [categoryResults, v2Response]);
+  }, [categoryResults, v2Response, v3Response, isV2, isV3]);
 
   useEffect(() => {
     const result = localResults.find((item) => item.category === activeTab);
@@ -103,11 +141,15 @@ export default function ResultPage({
   }, [activeTab, localResults]);
 
   const baseProducts = useMemo(() => {
-    if (v2Response) {
+    if (isV3 && v3Response) {
+      const tab = v3Response.tabs.find((t) => t.tab_id === activeTab);
+      return (tab?.items ?? []).map(v3ToProduct);
+    }
+    if (isV2 && v2Response) {
       return (v2Response.results[activeTab] ?? []).map(v2ToProduct);
     }
     return localResults.find((item) => item.category === activeTab)?.products ?? [];
-  }, [activeTab, localResults, v2Response]);
+  }, [activeTab, localResults, v2Response, v3Response, isV2, isV3]);
 
   const filteredProducts = useMemo(() => {
     let list = [...baseProducts];
@@ -125,19 +167,28 @@ export default function ResultPage({
     return list;
   }, [baseProducts, platformFilter, maxPrice, sortType]);
 
-  const totalCount = v2Response
+  const totalCount = isV3 && v3Response
+    ? v3Response.tabs.reduce((sum, t) => sum + t.items.length, 0)
+    : isV2 && v2Response
     ? Object.values(v2Response.results).reduce((sum, items) => sum + items.length, 0)
     : localResults.reduce((sum, r) => sum + r.products.length, 0);
 
   const getTabCount = (cat: string): number => {
-    if (v2Response) return v2Response.results[cat]?.length ?? 0;
+    if (isV3 && v3Response) return v3Response.tabs.find((t) => t.tab_id === cat)?.items.length ?? 0;
+    if (isV2 && v2Response) return v2Response.results[cat]?.length ?? 0;
     return localResults.find((r) => r.category === cat)?.products.length ?? 0;
   };
 
-  const handleLoadMore = async () => {
-    if (!activeResult || v2Response) return;
-    setIsLoadingMore(true);
+  const getTabLabel = (cat: string): string => {
+    if (isV3 && v3Response) {
+      return v3Response.tabs.find((t) => t.tab_id === cat)?.label ?? getCategoryLabel(cat);
+    }
+    return getCategoryLabel(cat);
+  };
 
+  const handleLoadMore = async () => {
+    if (!activeResult || isV2 || isV3) return;
+    setIsLoadingMore(true);
     try {
       const nextOffset = offsets[activeTab] ?? 21;
       const result = await searchProducts(activeResult.query, [], nextOffset);
@@ -157,13 +208,11 @@ export default function ResultPage({
   };
 
   const handleReSearch = async () => {
-    if (!activeResult || editedKeywords.length === 0 || v2Response) return;
+    if (!activeResult || editedKeywords.length === 0 || isV2 || isV3) return;
     setIsReSearching(true);
-
     try {
       const query = editedKeywords.slice(0, 3).join(' ');
       const result = await searchProducts(query, editedKeywords);
-
       setLocalResults((prev) =>
         prev.map((item) =>
           item.category === activeTab
@@ -178,23 +227,18 @@ export default function ResultPage({
     }
   };
 
-  const displayKeywords = v2Response
+  const displayKeywords = isV3 && v3Response
+    ? [v3Response.detected_attributes.mood ?? '', v3Response.detected_attributes.price_tier ?? ''].filter(Boolean)
+    : isV2 && v2Response
     ? v2Response.style_context.mood_tags
     : (activeResult?.keywords ?? []);
 
   const handleShare = async () => {
-    const labels = availableCategories.map(getCategoryLabel).join(', ');
+    const labels = availableCategories.map(getTabLabel).join(', ');
     const text = `Cloi 검색 결과\n카테고리: ${labels}\n총 ${totalCount}개 상품`;
-
     if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Cloi 검색 결과', text });
-        return;
-      } catch {
-        return;
-      }
+      try { await navigator.share({ title: 'Cloi 검색 결과', text }); return; } catch { return; }
     }
-
     try {
       await navigator.clipboard.writeText(text);
       alert('검색 결과를 클립보드에 복사했어요.');
@@ -247,7 +291,12 @@ export default function ResultPage({
           </div>
           <div style={{ flex: 1 }}>
             <p style={{ fontSize: 12, color: '#b6a89c' }}>업로드한 사진과 비슷한 상품</p>
-            {v2Response && (
+            {isV3 && v3Response && (
+              <p style={{ fontSize: 12, color: '#aa6d82', fontWeight: 500, marginTop: 1 }}>
+                {v3Response.overall_style}
+              </p>
+            )}
+            {isV2 && v2Response && (
               <p style={{ fontSize: 12, color: '#aa6d82', fontWeight: 500, marginTop: 1 }}>
                 {v2Response.style_context.overall_style}
               </p>
@@ -256,7 +305,19 @@ export default function ResultPage({
               <p style={{ fontSize: 13, color: '#8c7c71', fontWeight: 500 }}>
                 총 {totalCount}개 발견
               </p>
-              {v2Response && (
+              {isV3 && v3Response && (
+                <>
+                  <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#ede5d8', color: '#8c7c71' }}>
+                    {v3Response.total_latency_ms}ms
+                  </span>
+                  {v3Response.cache_hit && (
+                    <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: 'rgba(195, 132, 154, 0.15)', color: '#aa6d82' }}>
+                      캐시
+                    </span>
+                  )}
+                </>
+              )}
+              {isV2 && v2Response && (
                 <>
                   <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#ede5d8', color: '#8c7c71' }}>
                     {v2Response.latency_ms}ms
@@ -272,23 +333,20 @@ export default function ResultPage({
           </div>
         </div>
 
+        {/* 탭 네비게이션 */}
         <div className="capsule-row" style={{ paddingBottom: 12 }}>
           {availableCategories.map((category) => {
             const count = getTabCount(category);
             const isActive = activeTab === category;
-
             return (
               <button
                 key={category}
                 type="button"
-                onClick={() => {
-                  setActiveTab(category);
-                  setShowFilter(false);
-                }}
+                onClick={() => { setActiveTab(category); setShowFilter(false); }}
                 style={{
                   flexShrink: 0,
-                  minWidth: 88,
-                  padding: '12px 16px',
+                  minWidth: 80,
+                  padding: '10px 14px',
                   borderRadius: 18,
                   border: `1px solid ${isActive ? 'rgba(170, 109, 130, 0.28)' : 'rgba(229, 216, 202, 0.9)'}`,
                   background: isActive
@@ -298,8 +356,8 @@ export default function ResultPage({
                   boxShadow: isActive ? '0 12px 24px rgba(170, 109, 130, 0.22)' : 'none',
                 }}
               >
-                <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{getCategoryLabel(category)}</span>
-                <span style={{ display: 'block', marginTop: 3, fontSize: 11, opacity: isActive ? 0.84 : 0.6 }}>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{getTabLabel(category)}</span>
+                <span style={{ display: 'block', marginTop: 2, fontSize: 10, opacity: isActive ? 0.84 : 0.6 }}>
                   {count}개
                 </span>
               </button>
@@ -307,20 +365,23 @@ export default function ResultPage({
           })}
         </div>
 
+        {/* 아이템 설명 (v3) */}
+        {isV3 && activeV3Tab && (
+          <p style={{ fontSize: 11, color: '#8c7c71', marginBottom: 8, padding: '0 2px', lineHeight: 1.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {activeV3Tab.description}
+          </p>
+        )}
+
+        {/* 키워드/무드 태그 + 소팅 */}
         <div className="capsule-row" style={{ alignItems: 'center', paddingBottom: 4 }}>
-          {displayKeywords.slice(0, 5).map((keyword) => (
-            <span key={keyword} className="chip chip-active">
-              #{keyword}
-            </span>
+          {displayKeywords.slice(0, 4).map((keyword) => (
+            <span key={keyword} className="chip chip-active">#{keyword}</span>
           ))}
-          {!v2Response && (
+          {!isV2 && !isV3 && (
             <button
               type="button"
               className="chip"
-              onClick={() => {
-                setEditedKeywords(activeResult?.keywords ?? []);
-                setShowKeywordEdit(true);
-              }}
+              onClick={() => { setEditedKeywords(activeResult?.keywords ?? []); setShowKeywordEdit(true); }}
             >
               키워드 수정
             </button>
@@ -339,40 +400,23 @@ export default function ResultPage({
             <p style={{ fontSize: 12, fontWeight: 700, color: '#8c7c71', marginBottom: 8 }}>쇼핑몰</p>
             <div className="capsule-row" style={{ marginBottom: 16 }}>
               {platformFilters.map((filter) => (
-                <button
-                  key={filter.value}
-                  type="button"
-                  className={`chip${platformFilter === filter.value ? ' chip-active' : ''}`}
-                  onClick={() => setPlatformFilter(filter.value)}
-                >
+                <button key={filter.value} type="button" className={`chip${platformFilter === filter.value ? ' chip-active' : ''}`} onClick={() => setPlatformFilter(filter.value)}>
                   {filter.label}
                 </button>
               ))}
             </div>
-
             <p style={{ fontSize: 12, fontWeight: 700, color: '#8c7c71', marginBottom: 8 }}>가격대</p>
             <div className="capsule-row" style={{ marginBottom: 16 }}>
               {priceOptions.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  className={`chip${maxPrice === option.value ? ' chip-active' : ''}`}
-                  onClick={() => setMaxPrice(option.value)}
-                >
+                <button key={option.label} type="button" className={`chip${maxPrice === option.value ? ' chip-active' : ''}`} onClick={() => setMaxPrice(option.value)}>
                   {option.label}
                 </button>
               ))}
             </div>
-
             <p style={{ fontSize: 12, fontWeight: 700, color: '#8c7c71', marginBottom: 8 }}>정렬</p>
             <div className="capsule-row">
               {sortOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`chip${sortType === option.value ? ' chip-active' : ''}`}
-                  onClick={() => setSortType(option.value)}
-                >
+                <button key={option.value} type="button" className={`chip${sortType === option.value ? ' chip-active' : ''}`} onClick={() => setSortType(option.value)}>
                   {option.label}
                 </button>
               ))}
@@ -381,67 +425,26 @@ export default function ResultPage({
         )}
       </div>
 
-      {showKeywordEdit && !v2Response && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(44, 36, 31, 0.28)',
-            zIndex: 100,
-            display: 'flex',
-            alignItems: 'flex-end',
-          }}
-        >
-          <div
-            className="fade-rise"
-            style={{
-              width: '100%',
-              maxWidth: 480,
-              margin: '0 auto',
-              background: '#fff8f2',
-              borderTopLeftRadius: 28,
-              borderTopRightRadius: 28,
-              padding: '24px 20px 32px',
-              borderTop: '1px solid rgba(229, 216, 202, 0.9)',
-            }}
-          >
+      {showKeywordEdit && !isV2 && !isV3 && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(44, 36, 31, 0.28)', zIndex: 100, display: 'flex', alignItems: 'flex-end' }}>
+          <div className="fade-rise" style={{ width: '100%', maxWidth: 480, margin: '0 auto', background: '#fff8f2', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: '24px 20px 32px', borderTop: '1px solid rgba(229, 216, 202, 0.9)' }}>
             <h3 style={{ fontSize: 18, fontWeight: 600, color: '#2c241f' }}>
               {getCategoryLabel(activeTab)} 키워드 조정
             </h3>
             <p style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6, color: '#8c7c71' }}>
               마음에 들지 않는 키워드는 제거하고, 다시 검색해서 결과를 새로 받아올 수 있어요.
             </p>
-
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 18, marginBottom: 20 }}>
               {editedKeywords.map((keyword, index) => (
-                <div
-                  key={`${keyword}-${index}`}
-                  className="chip chip-active"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                >
+                <div key={`${keyword}-${index}`} className="chip chip-active" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <span>#{keyword}</span>
-                  <button
-                    type="button"
-                    onClick={() => setEditedKeywords((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
-                    style={{ fontSize: 14, lineHeight: 1 }}
-                  >
-                    ×
-                  </button>
+                  <button type="button" onClick={() => setEditedKeywords((prev) => prev.filter((_, i) => i !== index))} style={{ fontSize: 14, lineHeight: 1 }}>×</button>
                 </div>
               ))}
             </div>
-
             <div style={{ display: 'flex', gap: 10 }}>
-              <button type="button" className="btn-secondary" onClick={() => setShowKeywordEdit(false)} style={{ flex: 1 }}>
-                닫기
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleReSearch}
-                disabled={isReSearching || editedKeywords.length === 0}
-                style={{ flex: 1.5 }}
-              >
+              <button type="button" className="btn-secondary" onClick={() => setShowKeywordEdit(false)} style={{ flex: 1 }}>닫기</button>
+              <button type="button" className="btn-primary" onClick={handleReSearch} disabled={isReSearching || editedKeywords.length === 0} style={{ flex: 1.5 }}>
                 {isReSearching ? '재검색 중...' : '다시 검색'}
               </button>
             </div>
@@ -451,68 +454,80 @@ export default function ResultPage({
 
       <div className="screen-scroll" style={{ padding: '0 20px 20px' }}>
         {filteredProducts.length === 0 ? (
-          <div
-            className="section-card fade-rise"
-            style={{
-              minHeight: 220,
-              padding: 24,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              textAlign: 'center',
-            }}
-          >
-            <p className="serif-brand" style={{ fontSize: 40, lineHeight: 1, color: '#c3849a' }}>
-              No Match
-            </p>
+          <div className="section-card fade-rise" style={{ minHeight: 220, padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+            <p className="serif-brand" style={{ fontSize: 40, lineHeight: 1, color: '#c3849a' }}>No Match</p>
             <p style={{ marginTop: 10, fontSize: 14, lineHeight: 1.6, color: '#8c7c71' }}>
               현재 필터 조건과 맞는 상품이 없습니다. 필터를 완화하면 더 많은 결과를 볼 수 있어요.
             </p>
-            <button
-              type="button"
-              className="chip"
-              onClick={() => {
-                setPlatformFilter('all');
-                setMaxPrice(null);
-                setSortType('sim');
-              }}
-              style={{ marginTop: 14 }}
-            >
+            <button type="button" className="chip" onClick={() => { setPlatformFilter('all'); setMaxPrice(null); setSortType('sim'); }} style={{ marginTop: 14 }}>
               필터 초기화
             </button>
           </div>
         ) : (
-          <div
-            className="fade-rise"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 12,
-              paddingBottom: 16,
-            }}
-          >
-            {filteredProducts.map((product) => (
-              <div
-                key={product.id}
-                onClick={
-                  v2Response
-                    ? () => void recordClick(v2Response._imageHash, product.id, activeTab)
-                    : undefined
+          <div className="fade-rise" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, paddingBottom: 16 }}>
+            {filteredProducts.map((product, idx) => {
+              const v3Item = isV3 && activeV3Tab
+                ? activeV3Tab.items.find((p) => p.id === product.id)
+                : null;
+
+              const handleCardClick = () => {
+                if (isV3 && v3Response) {
+                  void recordClickV3(
+                    v3Response.image_hash,
+                    product.id,
+                    activeTab,
+                    idx,
+                    v3Item?.match_score ?? 0,
+                    product.title,
+                    product.price,
+                  );
+                } else if (isV2 && v2Response) {
+                  void recordClick(v2Response._imageHash, product.id, activeTab);
                 }
-              >
-                <ProductCard
-                  product={product}
-                  isFavorite={favoriteIds.has(product.id)}
-                  onToggleFavorite={v2Response ? undefined : onToggleFavorite}
-                />
-              </div>
-            ))}
+              };
+
+              const isFirst = idx === 0;
+
+              return (
+                <div
+                  key={product.id}
+                  onClick={handleCardClick}
+                  style={{
+                    position: 'relative',
+                    borderRadius: isFirst ? 16 : undefined,
+                    boxShadow: isFirst ? '0 0 0 2px #aa6d82' : undefined,
+                  }}
+                >
+                  {/* 매칭 뱃지 (v3 only) */}
+                  {v3Item && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
+                      zIndex: 2,
+                      background: isFirst ? '#aa6d82' : 'rgba(44, 36, 31, 0.56)',
+                      color: '#fff',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      padding: '2px 6px',
+                      borderRadius: 8,
+                    }}>
+                      매칭 {Math.round(v3Item.match_score * 100)}%
+                    </div>
+                  )}
+                  <ProductCard
+                    product={product}
+                    isFavorite={favoriteIds.has(product.id)}
+                    onToggleFavorite={!isV2 && !isV3 ? onToggleFavorite : undefined}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingBottom: 8 }}>
-          {!v2Response && (
+          {!isV2 && !isV3 && (
             <button type="button" className="btn-secondary" onClick={handleLoadMore} disabled={isLoadingMore}>
               {isLoadingMore ? '더 불러오는 중...' : `${getCategoryLabel(activeTab)} 더 보기`}
             </button>

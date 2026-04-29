@@ -4,7 +4,16 @@ import LoadingPage from './pages/LoadingPage';
 import ResultPage from './pages/ResultPage';
 import FavoritesPage from './pages/FavoritesPage';
 import ErrorScreen from './components/ErrorScreen';
-import type { AppState, LoadingStep, Product, AppError, HistoryItem, CategorySearchResult, SearchResponseV2 } from './types';
+import type {
+  AppState,
+  LoadingStep,
+  Product,
+  AppError,
+  HistoryItem,
+  CategorySearchResult,
+  SearchResponseV2,
+  SearchResponseV3,
+} from './types';
 import { CATEGORY_LABELS as CAT_LABELS } from './types';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import './styles/global.css';
@@ -14,6 +23,7 @@ export default function App() {
   const [loadingStep, setLoadingStep] = useState<LoadingStep>('analyzing');
   const [categoryResults, setCategoryResults] = useState<CategorySearchResult[]>([]);
   const [v2Response, setV2Response] = useState<SearchResponseV2 | null>(null);
+  const [v3Response, setV3Response] = useState<SearchResponseV3 | null>(null);
   const [error, setError] = useState<AppError | null>(null);
   const [lastRetry, setLastRetry] = useState<(() => void) | null>(null);
 
@@ -29,11 +39,16 @@ export default function App() {
     setLastRetry(() => fn);
   };
 
-  const handleResult = (catResults: CategorySearchResult[], description: string, v2?: SearchResponseV2) => {
+  const handleResult = (
+    catResults: CategorySearchResult[],
+    description: string,
+    v2?: SearchResponseV2,
+    v3?: SearchResponseV3,
+  ) => {
     setV2Response(v2 ?? null);
+    setV3Response(v3 ?? null);
     setCategoryResults(catResults);
 
-    // 히스토리용 데이터: 카테고리 레이블을 키워드로, 첫 상품들을 썸네일로 사용
     const allProducts = catResults.flatMap((r) => r.products.slice(0, 2));
     const displayKeywords = catResults.map((r) => CAT_LABELS[r.category]).filter(Boolean);
     const firstQuery = catResults[0]?.query || '';
@@ -62,6 +77,7 @@ export default function App() {
     setAppState('home');
     setError(null);
     setV2Response(null);
+    setV3Response(null);
   };
 
   const handleRetry = () => {
@@ -83,7 +99,6 @@ export default function App() {
     if (item.categoryResults && item.categoryResults.length > 0) {
       setCategoryResults(item.categoryResults);
     } else {
-      // 구형 히스토리 (categoryResults 없음): 상품을 첫 카테고리로 래핑
       setCategoryResults([{
         category: 'top',
         keywords: item.keywords,
@@ -119,6 +134,7 @@ export default function App() {
           onBack={handleBack}
           onToggleFavorite={handleToggleFavorite}
           v2Response={v2Response ?? undefined}
+          v3Response={v3Response ?? undefined}
         />
       )}
       {appState === 'error' && error && (

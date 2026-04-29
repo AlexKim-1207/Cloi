@@ -1,4 +1,10 @@
-import type { CategoryAnalysisResult, CategorySearchResult, SearchResponseV2, SearchResult } from '../types';
+import type {
+  CategoryAnalysisResult,
+  CategorySearchResult,
+  SearchResponseV2,
+  SearchResponseV3,
+  SearchResult,
+} from '../types';
 
 // localhost이면 개발서버(3001), 그 외엔 Cloudflare Workers 직접 호출
 function getApiBase() {
@@ -15,14 +21,16 @@ function getApiBase() {
 const API_BASE = getApiBase();
 
 // ─── 분석 결과 캐시 (세션 내 동일 이미지/URL 재호출 방지) ──────────────────────
-const analysisCache = new Map<string, CategoryAnalysisResult | SearchResponseV2>();
+const analysisCache = new Map<string, CategoryAnalysisResult | SearchResponseV2 | SearchResponseV3>();
 
-// base64 전체를 키로 쓰면 메모리 낭비 → 길이 + 앞뒤 64자로 실질적 유일 키 생성
 function imageCacheKey(base64: string): string {
   return `${base64.length}|${base64.slice(0, 64)}|${base64.slice(-64)}`;
 }
 
-export async function analyzeImage(imageBase64: string, mimeType: string): Promise<CategoryAnalysisResult | SearchResponseV2> {
+export async function analyzeImage(
+  imageBase64: string,
+  mimeType: string,
+): Promise<CategoryAnalysisResult | SearchResponseV2 | SearchResponseV3> {
   const cacheKey = `img:${imageCacheKey(imageBase64)}`;
   if (analysisCache.has(cacheKey)) {
     return analysisCache.get(cacheKey)!;
@@ -39,9 +47,31 @@ export async function analyzeImage(imageBase64: string, mimeType: string): Promi
     throw Object.assign(new Error(err.message || `분석 실패 (${res.status})`), { code: err.code });
   }
 
-  const data: CategoryAnalysisResult | SearchResponseV2 = await res.json();
+  const data: CategoryAnalysisResult | SearchResponseV2 | SearchResponseV3 = await res.json();
   analysisCache.set(cacheKey, data);
   return data;
+}
+
+export async function searchByImageFile(
+  imageBase64: string,
+  mimeType: string,
+  sortBy: 'relevance' | 'price_asc' | 'price_desc' = 'relevance',
+): Promise<SearchResponseV3> {
+  const url = `${API_BASE}/api/search-image?sort_by=${sortBy}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageBase64, mimeType }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(err.message || `검색 실패 (${res.status})`), { code: err.code });
+  }
+
+  const data = await res.json();
+  // Worker adds _imageHash from the response or computes it
+  return { ...data, _source: 'v3' as const, _imageHash: data.image_hash || data._imageHash || '' };
 }
 
 export async function recordClick(
@@ -53,7 +83,35 @@ export async function recordClick(
     const qs = category ? `?category=${encodeURIComponent(category)}` : '';
     await fetch(`${API_BASE}/api/analyze/click/${imageHash}/${productId}${qs}`, { method: 'POST' });
   } catch {
-    // click tracking failure is non-critical
+    // non-critical
+  }
+}
+
+export async function recordClickV3(
+  imageHash: string,
+  productId: string,
+  category: string,
+  rankPosition: number,
+  matchScore: number,
+  productTitle?: string,
+  productPrice?: number,
+): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/click`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_hash: imageHash,
+        product_id: productId,
+        category,
+        rank_position: rankPosition,
+        final_score: matchScore,
+        product_title: productTitle || '',
+        product_price: productPrice || 0,
+      }),
+    });
+  } catch {
+    // non-critical
   }
 }
 

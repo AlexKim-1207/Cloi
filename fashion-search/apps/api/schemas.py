@@ -1,28 +1,53 @@
+from typing import Optional
 from pydantic import BaseModel, Field
 
-from src.llm.schemas import ItemDetail, StyleContext
+from src.llm.schemas import ItemDetail, StyleContext, DetectedItem, MultiItemStyleContext
 
-__all__ = ["ItemDetail", "StyleContext"]
+__all__ = ["ItemDetail", "StyleContext", "DetectedItem", "MultiItemStyleContext"]
 
 
-# ── v2 API 스키마 ──────────────────────────────────────────────────────────────
+# ── v3 API 스키마 ──────────────────────────────────────────────────────────────
 
 class ProductCard(BaseModel):
-    product_id: str
+    id: str
     title: str
-    price: int
-    image_url: str
+    image: str
+    price: Optional[int] = None
     link: str
-    platform: str
-    category: str
-    similarity_score: float
+    mall_name: Optional[str] = None
+    match_score: float = 0.0
+    clip_similarity: float = 0.0
+    mood_match: float = 0.0
+    price_fit: float = 0.0
+
+
+class TabSection(BaseModel):
+    tab_id: str
+    label: str
+    description: str
+    items: list[ProductCard]
 
 
 class SearchResponse(BaseModel):
-    style_context: StyleContext
-    results: dict[str, list[ProductCard]]
-    cached: bool
-    latency_ms: int
+    image_hash: str
+    overall_style: str
+    detected_attributes: dict
+    tabs: list[TabSection]
+    total_latency_ms: int
+    cache_hit: bool = False
+
+
+class ClickRequest(BaseModel):
+    image_hash: str
+    product_id: str
+    category: str = ""
+    product_title: str = ""
+    product_image_url: str = ""
+    product_price: int = 0
+    final_score: float = 0.0
+    rank_position: int = 0
+    mood_label: str = ""
+    price_tier: str = ""
 
 
 class PopularItem(BaseModel):
@@ -35,7 +60,7 @@ class PopularItem(BaseModel):
     ctr: float
 
 
-# ── Admin 스키마 (routes_admin.py) ─────────────────────────────────────────────
+# ── Admin 스키마 ───────────────────────────────────────────────────────────────
 
 class CatalogAddRequest(BaseModel):
     image_base64: str
@@ -57,11 +82,10 @@ class CatalogStatsResponse(BaseModel):
 # ── 레거시 Phase 2 FAISS 스키마 ────────────────────────────────────────────────
 
 class SearchRequest(BaseModel):
-    """Phase 2 FAISS 파이프라인용 (base64 입력)."""
     image_base64: str = Field(..., description="base64 인코딩된 이미지 데이터")
     mime_type: str = Field(default="image/jpeg")
     top_k: int = Field(default=20, ge=1, le=50)
-    contribute_to_catalog: bool = Field(default=False, description="True이면 검색 후 이미지를 카탈로그에 추가")
+    contribute_to_catalog: bool = Field(default=False)
 
 
 class ProductResult(BaseModel):

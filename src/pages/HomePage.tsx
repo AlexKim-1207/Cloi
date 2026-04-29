@@ -10,10 +10,15 @@ import type {
   LoadingStep,
   Product,
   SearchResponseV2,
+  SearchResponseV3,
 } from '../types';
 
-function isV2Response(r: CategoryAnalysisResult | SearchResponseV2): r is SearchResponseV2 {
-  return (r as SearchResponseV2)._source === 'v2';
+function isV3Response(r: unknown): r is SearchResponseV3 {
+  return (r as SearchResponseV3)?._source === 'v3' || Boolean((r as SearchResponseV3)?.tabs);
+}
+
+function isV2Response(r: unknown): r is SearchResponseV2 {
+  return (r as SearchResponseV2)?._source === 'v2';
 }
 
 function korToFashionCategory(kor: string): FashionCategory {
@@ -53,9 +58,42 @@ function convertV2ToLegacy(v2: SearchResponseV2): CategorySearchResult[] {
   }));
 }
 
+function convertV3ToLegacy(v3: SearchResponseV3): CategorySearchResult[] {
+  const grouped = new Map<FashionCategory, Product[]>();
+
+  for (const tab of v3.tabs) {
+    if (tab.items.length === 0) continue;
+    const cat = korToFashionCategory(tab.label);
+    const products: Product[] = tab.items.map((p) => ({
+      id: p.id,
+      title: p.title,
+      price: p.price ?? 0,
+      image: p.image,
+      link: p.link,
+      mallName: p.mall_name ?? '',
+      category: tab.tab_id,
+    }));
+    const existing = grouped.get(cat) ?? [];
+    grouped.set(cat, [...existing, ...products]);
+  }
+
+  return Array.from(grouped.entries()).map(([cat, products]) => ({
+    category: cat,
+    keywords: [v3.detected_attributes.mood ?? '', v3.detected_attributes.price_tier ?? ''].filter(Boolean),
+    products,
+    total: products.length,
+    query: v3.overall_style,
+  }));
+}
+
 interface HomePageProps {
   onLoadingStart: (step: LoadingStep) => void;
-  onResult: (categoryResults: CategorySearchResult[], description: string, v2Response?: SearchResponseV2) => void;
+  onResult: (
+    categoryResults: CategorySearchResult[],
+    description: string,
+    v2Response?: SearchResponseV2,
+    v3Response?: SearchResponseV3,
+  ) => void;
   onError: (error: AppError) => void;
   onSetRetry: (fn: () => void) => void;
   history: HistoryItem[];
@@ -100,7 +138,7 @@ export default function HomePage({
     setImageData({ base64, mimeType });
   };
 
-  const runAnalysis = async (getAnalysis: () => Promise<CategoryAnalysisResult | SearchResponseV2>) => {
+  const runAnalysis = async (getAnalysis: () => Promise<CategoryAnalysisResult | SearchResponseV2 | SearchResponseV3>) => {
     if (isAnalyzingRef.current) return;
     isAnalyzingRef.current = true;
     onSetRetry(() => runAnalysis(getAnalysis));
@@ -110,7 +148,18 @@ export default function HomePage({
       onLoadingStart('analyzing');
       const analysis = await getAnalysis();
 
-      if (isV2Response(analysis)) {
+      if (isV3Response(analysis)) {
+        const legacyResults = convertV3ToLegacy(analysis);
+        if (legacyResults.length === 0) {
+          onError({
+            message: '입력한 이미지와 비슷한 상품을 찾지 못했어요. 다른 이미지를 다시 시도해 주세요.',
+            code: 'NO_RESULTS',
+            retryable: true,
+          });
+        } else {
+          onResult(legacyResults, analysis.overall_style, undefined, analysis);
+        }
+      } else if (isV2Response(analysis)) {
         const legacyResults = convertV2ToLegacy(analysis);
         if (legacyResults.length === 0) {
           onError({
@@ -123,7 +172,7 @@ export default function HomePage({
         }
       } else {
         onLoadingStart('searching');
-        const categoryResults = await searchByCategories(analysis.categories);
+        const categoryResults = await searchByCategories((analysis as CategoryAnalysisResult).categories);
 
         if (categoryResults.length === 0) {
           onError({
@@ -132,7 +181,7 @@ export default function HomePage({
             retryable: true,
           });
         } else {
-          onResult(categoryResults, analysis.description);
+          onResult(categoryResults, (analysis as CategoryAnalysisResult).description);
         }
       }
     } catch (error) {
@@ -197,6 +246,9 @@ export default function HomePage({
         <section className="section-card fade-rise" style={{ padding: 18, marginBottom: 22 }}>
           <div style={{ marginBottom: 14 }}>
             <p style={{ fontSize: 12, color: '#aa6d82', fontWeight: 700, letterSpacing: '0.08em' }}>PHOTO SEARCH</p>
+            <p style={{ marginTop: 4, fontSize: 11, color: '#b6a89c' }}>
+              사진 속 모든 아이템 탭별 추천 · 분위기 매칭 · 최저가 소팅
+            </p>
           </div>
 
           {imagePreview ? (
@@ -209,10 +261,7 @@ export default function HomePage({
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    setImagePreview(null);
-                    setImageData(null);
-                  }}
+                  onClick={() => { setImagePreview(null); setImageData(null); }}
                   style={{
                     position: 'absolute',
                     top: 12,
@@ -274,45 +323,16 @@ export default function HomePage({
                   type="button"
                   onClick={() => onHistorySelect(item)}
                   className="section-card"
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    padding: 12,
-                    textAlign: 'left',
-                  }}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: 12, textAlign: 'left' }}
                 >
-                  <div
-                    style={{
-                      width: 52,
-                      height: 52,
-                      borderRadius: 16,
-                      overflow: 'hidden',
-                      background: '#efe5d8',
-                      flexShrink: 0,
-                    }}
-                  >
+                  <div style={{ width: 52, height: 52, borderRadius: 16, overflow: 'hidden', background: '#efe5d8', flexShrink: 0 }}>
                     {item.products[0]?.image ? (
-                      <img
-                        src={item.products[0].image}
-                        alt="검색 기록 썸네일"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      />
+                      <img src={item.products[0].image} alt="검색 기록 썸네일" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : null}
                   </div>
 
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <p
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 500,
-                        color: '#2c241f',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
+                    <p style={{ fontSize: 14, fontWeight: 500, color: '#2c241f', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {item.keywords.slice(0, 4).join(' · ')}
                     </p>
                     <p style={{ marginTop: 4, fontSize: 12, color: '#8c7c71' }}>

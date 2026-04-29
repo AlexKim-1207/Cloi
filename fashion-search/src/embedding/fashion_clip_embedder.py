@@ -1,3 +1,5 @@
+from typing import List
+
 import numpy as np
 import torch
 from PIL import Image
@@ -35,6 +37,32 @@ class FashionCLIPEmbedder(ImageEmbedder):
                 vision_out = self._model.vision_model(pixel_values=inputs["pixel_values"])
                 # visual_projection: 768 → 512
                 feats = self._model.visual_projection(vision_out.pooler_output).cpu().numpy().astype(np.float32)
+            norms = np.linalg.norm(feats, axis=1, keepdims=True)
+            norms = np.where(norms == 0, 1e-9, norms)
+            all_features.append(feats / norms)
+        return np.vstack(all_features) if all_features else np.empty((0, self.dim), dtype=np.float32)
+
+    def embed_single(self, image: Image.Image) -> np.ndarray:
+        return self.embed([image])[0]
+
+    def encode_text(self, texts: List[str]) -> np.ndarray:
+        if self._model is None:
+            self.load()
+        all_features: list[np.ndarray] = []
+        for i in range(0, len(texts), self.batch_size):
+            batch = texts[i : i + self.batch_size]
+            inputs = self._processor(
+                text=batch,
+                return_tensors="pt",
+                padding=True,
+                truncation=True,
+                max_length=77,
+            )
+            with torch.no_grad():
+                feats = self._model.get_text_features(
+                    input_ids=inputs["input_ids"],
+                    attention_mask=inputs["attention_mask"],
+                ).cpu().numpy().astype(np.float32)
             norms = np.linalg.norm(feats, axis=1, keepdims=True)
             norms = np.where(norms == 0, 1e-9, norms)
             all_features.append(feats / norms)
