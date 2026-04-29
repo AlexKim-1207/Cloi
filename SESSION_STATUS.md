@@ -22,9 +22,12 @@
 - `ImageEmbedder` ABC → `embedder_base.py`
 - `OpenCLIPEmbedder` (dim=768), `FashionCLIPEmbedder` (dim=512), `MarqoSigLIPEmbedder` (dim=768)
 - 팩토리 함수 `get_embedder(name)` → `src/embedding/__init__.py`
-- 단위 테스트 스크립트 `scripts/test_embedders.py` (L2 norm + dim 검증)
+- 단위 테스트 스크립트 `scripts/test_embedders.py` (L2 norm + dim 검증) → **3종 PASS 확인**
 - `settings.py` `embedder_name=marqo_fashion_siglip`, `embedder_device=cpu` 추가
 - `apps/api/main.py` lifespan → `get_embedder()` 기반 preload
+- 수정: `requirements.txt` → `transformers>=4.44.2,<5.0` 추가 (누락 패키지)
+- 수정: `FashionCLIPEmbedder` → `visual_projection` 적용 (512-dim 정확)
+- 수정: `MarqoSigLIPEmbedder` → `SiglipModel` 사용 (meta tensor 버그 우회)
 
 ---
 
@@ -48,7 +51,7 @@ claude --dangerously-skip-permissions "CLAUDE.md와 fashion-search/docs/EXECUTIO
 - [x] `fashion-search/scripts/test_embedders.py` (L2 norm + dim 검증)
 - [x] `settings.py` embedder_name / embedder_device 추가
 - [x] git commit: `feat: step1 embedder abstraction`
-- [ ] 단위 테스트 실행 검증 (패키지 설치 후 유저 직접 실행 필요)
+- [x] 단위 테스트 실행 검증 (3종 모두 PASS: openclip/fashion_clip/marqo_siglip)
 
 ### SESSION 2 산출물
 - [ ] `fashion-search/scripts/seed_catalog.py`
