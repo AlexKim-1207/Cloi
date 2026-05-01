@@ -107,14 +107,14 @@ CLUSTER_THRESHOLDS_CLOTHING = {
     'image_sim_strong': 0.90,   # 단독으로 묶기 충분 (이전 0.92 → 0.90)
     'image_sim_weak': 0.82,     # 추가 신호 있을 때 묶기
     'title_sim': 0.65,          # 이전 0.70 → 0.65
-    'color_min_sim': 0.60,      # 색상 너무 다르면 분리 (안전장치)
+    'color_min_sim': 0.0,       # Fix 10-4: 0으로 — color signal 회복 전까지 비활성화
 }
 
 CLUSTER_THRESHOLDS_ACCESSORY = {
     'image_sim_strong': 0.85,   # 공격적: 조명/각도로 같은 상품 잘 분리됨
     'image_sim_weak': 0.75,
     'title_sim': 0.60,          # 모델코드 + 브랜드면 충분
-    'color_min_sim': 0.55,
+    'color_min_sim': 0.0,       # Fix 10-4
 }
 
 
