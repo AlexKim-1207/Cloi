@@ -29,13 +29,13 @@ def compute_clothing_score(
     color_sim: float,
     naver_rank_score: float,
 ) -> float:
-    """의류: 시각 매칭 + 색상 매칭 강화.
+    """의류: 시각 매칭 우선. color는 P0에서 비활성화 (회귀 차단).
 
-    색상 mismatch 시 강한 패널티 (회색 츄리닝 → 핑크 조거 문제 해결).
+    히스토그램 비대칭 (query=crop, product=썸네일 전체) 문제로 color가 노이즈로 작동.
+    SESSION 11에서 Lab + segmentation 적용 후 가중치 부활 예정.
     """
-    if color_sim < 0.3:
-        return visual_sim * 0.50 + color_sim * 0.45 + naver_rank_score * 0.05
-    return visual_sim * 0.65 + color_sim * 0.30 + naver_rank_score * 0.05
+    # 비활성화 사유: docs/DIAGNOSIS_S9_REGRESSION.md 결함 1, 9 참조
+    return visual_sim * 0.95 + naver_rank_score * 0.05
 
 
 def compute_accessory_score(
