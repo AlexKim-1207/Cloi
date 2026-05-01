@@ -1,8 +1,40 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 8 PATCH A ✅
-- 다음 세션: SESSION 9 (데이터 1,000건 축적 후 LoRA 학습 활성화)
+- 완료 세션: SESSION 9 ✅
+- 다음 세션: SESSION 10 (Gemini 고부하 해소 후 정성 평가 5개 케이스 실 측정)
+
+## SESSION 9: ✅ 완료 (2026-05-01) — 매칭 정확도 본질 개선
+
+### Fix 1~7 완료
+- **Fix 1**: 탭별 query embedding 분리 (`_build_per_tab_query_embs`) — 흰 크롭탑은 흰 크롭탑만으로 매칭
+- **Fix 2**: Gemini detect 프롬프트 재작성 — top_outer/top_inner 분리, 14종 액세서리 탐지 (로그 확인: watch 탐지 성공)
+- **Fix 3**: `tab_mapper.py` 신규 — detect 레이블↔탭ID 스마트 매핑
+- **Fix 4**: 카테고리별 점수 공식 분리 — 의류(시각80%+색상15%+Naver5%) vs 잡화(시각40%+무드30%+가격20%+Naver10%)
+- **Fix 5**: RGB 색상 히스토그램 보조 신호 (`color_hist.py`) — 찐핑크 vs 연핑크 구분
+- **Fix 6**: 4분면 소팅 (`quadrant_sort.py`) — 정확+싸 > 정확+비싸 > 부정확+싸 > 부정확+비싸
+- **Fix 7**: SKU 클러스터링 v2 — 이미지 임베딩(0.92) + 모델코드 + 제목/브랜드 복합 조건
+
+### 로컬 테스트 결과
+- price_fit(200만원 vs casual range): 0.05 (럭셔리 가방 패널티 정상) ✅
+- quadrant_sort: score=0.9/25000원이 1순위, score=0.2/50만원이 최후순위 ✅
+- cluster_v2: 동일 상품 다판매처 1개 클러스터로 묶임 ✅
+- tab_mapper: top_inner → top_inner 매핑, accessory_ring → accessory_ring ✅
+
+### 배포
+- Cloud Run revision: fashion-search-00016-kfw (2Gi, asia-northeast3)
+- git push: 9351ecf → origin/main
+- /health: `{"status":"ok","version":"3.0.0","embedder":"fashion_clip","faiss_size":2725}` ✅
+- 서버 로그 확인: accessory_watch 탭 네이버 검색 쿼리 등장 (새 Gemini 프롬프트 동작 확인) ✅
+- 503 원인: Gemini 고부하 (일시적) + Cloud Run min-instances=0 drain timeout
+  → 해결: Gemini 부하 정상화 시 자동 해소
+
+### 다음 세션 명령어
+```bash
+cd "C:\Users\Alex KIM\Desktop\사업 프로젝트\인앱토스 1"
+# Gemini 부하 정상화 후 정성 평가 5케이스 실측
+# 또는 Cloud Run min-instances=1로 변경해 cold start 제거
+```
 
 ## SESSION 8 PATCH A: ✅ 완료 (2026-05-01) — Gemini 호출 병렬화
 
