@@ -45,16 +45,6 @@ MOOD_OPTIONS = [
     'y2k playful trendy',
     'classic timeless preppy',
 ]
-PRICE_TIER_BY_MOOD = {
-    'luxury fashion editorial elegant': ('luxury', 200000, 9999999),
-    'casual street style daily': ('budget', 10000, 60000),
-    'minimal office professional clean': ('mid', 40000, 150000),
-    'sporty athletic wear': ('mid', 20000, 100000),
-    'feminine romantic look': ('mid', 20000, 120000),
-    'vintage retro style': ('budget', 15000, 80000),
-    'y2k playful trendy': ('budget', 10000, 70000),
-    'classic timeless preppy': ('mid', 50000, 200000),
-}
 
 
 class AttributeClassifier:
@@ -80,7 +70,6 @@ class AttributeClassifier:
             image_emb = image_emb[np.newaxis, :]
 
         mood_top = self._top_k(image_emb, MOOD_OPTIONS, k=1)[0]
-        tier_name, low, high = PRICE_TIER_BY_MOOD[mood_top[0]]
 
         return {
             'neckline': self._top_k(image_emb, NECKLINE_OPTIONS, k=1)[0][0],
@@ -90,6 +79,4 @@ class AttributeClassifier:
             'pattern': self._top_k(image_emb, PATTERN_OPTIONS, k=1)[0][0],
             'mood': mood_top[0],
             'mood_confidence': mood_top[1],
-            'price_tier': tier_name,
-            'price_range': (low, high),
         }

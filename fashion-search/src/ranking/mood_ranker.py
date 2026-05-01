@@ -1,73 +1,81 @@
-"""무드 기반 복합 소팅 모듈."""
-from typing import Dict, List, Tuple
+"""벡터 기반 복합 소팅 모듈 v3 — 텍스트 휴리스틱 완전 제거."""
+from typing import Dict, List, Optional
+
+import numpy as np
 
 
-def price_fit_score(product_price: int, price_range: Tuple[int, int]) -> float:
-    if product_price is None or product_price <= 0:
+def cross_modal_mood_score(
+    product_image_emb: np.ndarray,
+    mood_text_emb: np.ndarray,
+) -> float:
+    """이미지-텍스트 cross-modal 유사도 (FashionCLIP).
+
+    상품 이미지 임베딩과 detected mood 텍스트 임베딩의 코사인 유사도.
+    텍스트 키워드 매칭이 아닌 벡터 공간에서 무드 일치도 측정.
+    """
+    sim = float(np.dot(product_image_emb, mood_text_emb))
+    return max(0.0, min(1.0, sim))
+
+
+def compute_final_score(
+    visual_sim: float,
+    mood_align: float,
+    naver_rank_score: float,
+) -> float:
+    """벡터 기반 복합 점수 — 텍스트 휴리스틱 완전 제거.
+
+    가중치:
+    - visual_sim: 0.70 (핵심 신호)
+    - mood_align: 0.20 (벡터 기반 무드 일치)
+    - naver_rank_score: 0.10 (텍스트 검색 relevance 보조)
+    """
+    return visual_sim * 0.70 + mood_align * 0.20 + naver_rank_score * 0.10
+
+
+def naver_rank_to_score(rank: int, total: int) -> float:
+    """Naver 검색 결과 순위를 0~1 점수로 변환 (선형 감소)."""
+    if total <= 0:
         return 0.5
-    low, high = price_range
-    if low <= product_price <= high:
-        return 1.0
-    elif product_price < low:
-        ratio = (low - product_price) / max(low, 1)
-        return max(0.3, 1 - ratio * 0.7)
-    else:
-        ratio = (product_price - high) / max(high, 1)
-        return max(0.1, 1 - ratio * 0.5)
+    return max(0.0, 1.0 - rank / total)
 
 
-def mood_match_score(product_title: str, mood_keywords: List[str]) -> float:
-    if not product_title:
-        return 0.5
-    title_lower = product_title.lower()
-    hits = sum(1 for kw in mood_keywords if kw.lower() in title_lower)
-    return min(1.0, 0.5 + hits * 0.15)
-
-
-MOOD_KEYWORDS = {
-    'luxury': ['프리미엄', '럭셔리', '명품', '하이엔드', 'luxury', 'premium'],
-    'casual': ['데일리', '캐주얼', 'casual', '베이직'],
-    'office': ['오피스', '정장', '포멀', 'office', '클래식'],
-    'sporty': ['스포츠', '액티브', '트레이닝', 'sport'],
-    'feminine': ['페미닌', '러블리', '로맨틱', '걸리시'],
-    'vintage': ['빈티지', '레트로', 'vintage', 'retro'],
-    'y2k': ['y2k', '트렌디', '힙'],
-    'classic': ['클래식', '베이직', 'classic'],
-}
-
-
-def get_mood_keywords(mood_label: str) -> List[str]:
-    for key, kws in MOOD_KEYWORDS.items():
-        if key in mood_label.lower():
-            return kws
-    return []
-
-
-def compute_final_score(clip_sim: float, mood: float, price_fit: float) -> float:
-    return clip_sim * 0.45 + mood * 0.30 + price_fit * 0.25
-
-
-def rank_products(
+def rank_products_v3(
     products: List[Dict],
-    clip_scores: Dict[str, float],
-    mood_label: str,
-    price_range: Tuple[int, int],
+    query_image_emb: np.ndarray,
+    product_image_embs: Dict[str, np.ndarray],
+    mood_text_emb: np.ndarray,
     sort_by: str = 'relevance',
 ) -> List[Dict]:
-    mood_kws = get_mood_keywords(mood_label)
+    """벡터 기반 재랭킹 (v3)."""
+    total = len(products)
 
-    for p in products:
-        clip = clip_scores.get(p.get('product_id', ''), 0.5)
-        mood_score = mood_match_score(p.get('title', ''), mood_kws)
-        pfit = price_fit_score(p.get('price', 0), price_range)
-        p['_clip_sim'] = clip
-        p['_mood_match'] = mood_score
-        p['_price_fit'] = pfit
-        p['match_score'] = compute_final_score(clip, mood_score, pfit)
+    for i, p in enumerate(products):
+        pid = p.get('product_id', '')
+        prod_emb = product_image_embs.get(pid)
+
+        if prod_emb is not None:
+            visual_sim = float(np.dot(query_image_emb, prod_emb))
+            visual_sim = max(0.0, visual_sim)
+            mood_align = cross_modal_mood_score(prod_emb, mood_text_emb)
+        else:
+            visual_sim = 0.0
+            mood_align = 0.0
+
+        naver_rank = naver_rank_to_score(i, total)
+
+        p['_visual_sim'] = visual_sim
+        p['_mood_align'] = mood_align
+        p['_naver_rank'] = naver_rank
+        p['match_score'] = compute_final_score(visual_sim, mood_align, naver_rank)
 
     if sort_by == 'price_asc':
         return sorted(products, key=lambda x: (x.get('price', 999999999), -x['match_score']))
     elif sort_by == 'price_desc':
         return sorted(products, key=lambda x: (-x.get('price', 0), -x['match_score']))
     else:
-        return sorted(products, key=lambda x: (-x['match_score'], x.get('price', 999999999)))
+        return sorted(products, key=lambda x: -x['match_score'])
+
+
+def rank_products(products, clip_scores, mood_label, price_range, sort_by='relevance'):
+    """[DEPRECATED] Use rank_products_v3 instead."""
+    raise DeprecationWarning("rank_products v2 is deprecated. Use rank_products_v3.")

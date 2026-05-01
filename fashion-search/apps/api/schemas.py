@@ -16,9 +16,9 @@ class ProductCard(BaseModel):
     link: str
     mall_name: Optional[str] = None
     match_score: float = 0.0
-    clip_similarity: float = 0.0
-    mood_match: float = 0.0
-    price_fit: float = 0.0
+    visual_similarity: float = 0.0
+    mood_alignment: float = 0.0
+    naver_rank_score: float = 0.0
 
 
 class TabSection(BaseModel):
@@ -29,6 +29,7 @@ class TabSection(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    session_id: str = ""
     image_hash: str
     overall_style: str
     detected_attributes: dict
@@ -38,6 +39,7 @@ class SearchResponse(BaseModel):
 
 
 class ClickRequest(BaseModel):
+    session_id: str = ""
     image_hash: str
     product_id: str
     category: str = ""
@@ -47,7 +49,6 @@ class ClickRequest(BaseModel):
     final_score: float = 0.0
     rank_position: int = 0
     mood_label: str = ""
-    price_tier: str = ""
 
 
 class PopularItem(BaseModel):
