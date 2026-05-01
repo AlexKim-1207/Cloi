@@ -41,7 +41,7 @@ from src.logging.search_logger import (
     mark_impression_clicked,
 )
 from src.pricing.normalize import cluster_similar_products_v2, lowest_price_per_cluster
-from src.ranking.color_hist import compute_color_histogram, extract_dominant_colors
+from src.ranking.color_hist import compute_color_histogram
 from src.ranking.mood_ranker import rank_clothing_products, rank_accessory_products
 from src.ranking.mood_to_price import estimate_price_range_from_mood, is_accessory_tab
 from src.ranking.quadrant_sort import quadrant_sort
@@ -181,14 +181,12 @@ async def _calc_clip_embeddings_and_hists(
 
     embs: dict[str, np.ndarray] = {}
     hists: dict[str, np.ndarray] = {}
-    dominants: dict[str, np.ndarray] = {}
     for p, vec, img in zip(valid_products, product_vecs, valid_images):
         pid = p.get("product_id", "")
         embs[pid] = vec
         hists[pid] = compute_color_histogram(img)
-        dominants[pid] = extract_dominant_colors(img, k=3)
 
-    return embs, hists, dominants
+    return embs, hists, {}  # dominants: 빈 dict (Fix 10-2: K-means 비활성화)
 
 
 async def _build_per_tab_query_embs(
@@ -213,13 +211,12 @@ async def _build_per_tab_query_embs(
 
     fallback_emb = await asyncio.to_thread(embedder.embed_single, pil_image)
     fallback_hist = compute_color_histogram(pil_image)
-    fallback_dom = await asyncio.to_thread(extract_dominant_colors, pil_image, 3)
 
     if detection is None or not detection.boxes:
         return (
             {item.tab_id: fallback_emb for item in detected_items},
             {item.tab_id: fallback_hist for item in detected_items},
-            {item.tab_id: fallback_dom for item in detected_items},
+            {item.tab_id: None for item in detected_items},
         )
 
     try:
@@ -233,7 +230,7 @@ async def _build_per_tab_query_embs(
             return (
                 {item.tab_id: fallback_emb for item in detected_items},
                 {item.tab_id: fallback_hist for item in detected_items},
-                {item.tab_id: fallback_dom for item in detected_items},
+                {item.tab_id: None for item in detected_items},
             )
 
         crop_labels = list(garment_crops.keys())
@@ -242,12 +239,11 @@ async def _build_per_tab_query_embs(
 
         label_to_emb: dict[str, np.ndarray] = {}
         label_to_hist: dict[str, np.ndarray] = {}
-        label_to_dom: dict[str, np.ndarray] = {}
         for label, emb, crop_img in zip(crop_labels, crop_embs, crop_images):
             norm = np.linalg.norm(emb) + 1e-8
             label_to_emb[label] = emb / norm
             label_to_hist[label] = compute_color_histogram(crop_img)
-            label_to_dom[label] = await asyncio.to_thread(extract_dominant_colors, crop_img, 3)
+            # Fix 10-2: dominant 비활성화 — K-means 호출 제거
 
         result_embs: dict[str, np.ndarray] = {}
         result_hists: dict[str, np.ndarray] = {}
@@ -257,7 +253,7 @@ async def _build_per_tab_query_embs(
             label = map_tab_to_label(tab_id, label_to_emb.keys())
             result_embs[tab_id] = label_to_emb.get(label, fallback_emb) if label else fallback_emb
             result_hists[tab_id] = label_to_hist.get(label, fallback_hist) if label else fallback_hist
-            result_doms[tab_id] = label_to_dom.get(label, fallback_dom) if label else fallback_dom
+            result_doms[tab_id] = None  # Fix 10-2: dominants 비활성화
 
         return result_embs, result_hists, result_doms
 
@@ -266,7 +262,7 @@ async def _build_per_tab_query_embs(
         return (
             {item.tab_id: fallback_emb for item in detected_items},
             {item.tab_id: fallback_hist for item in detected_items},
-            {item.tab_id: fallback_dom for item in detected_items},
+            {item.tab_id: None for item in detected_items},
         )
 
 

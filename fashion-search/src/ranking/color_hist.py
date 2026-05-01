@@ -92,12 +92,9 @@ def color_score(
     query_dominant: Optional[np.ndarray] = None,
     product_dominant: Optional[np.ndarray] = None,
 ) -> float:
-    """종합 색상 점수: 히스토그램 40% + dominant 60%.
+    """색상 점수 — P0에서 dominant 비활성화 (거리 계산 결함).
 
-    dominant 없으면 히스토그램만 사용.
+    SESSION 11에서 HSV Hue 순환성 + Lab 변환 후 dominant 부활 예정.
     """
-    hist_sim = color_similarity(query_hist, product_hist)
-    if query_dominant is not None and product_dominant is not None:
-        dom_sim = dominant_color_similarity(query_dominant, product_dominant)
-        return hist_sim * 0.40 + dom_sim * 0.60
-    return hist_sim
+    # 비활성화 사유: docs/DIAGNOSIS_S9_REGRESSION.md 결함 2, 3, 4 참조
+    return color_similarity(query_hist, product_hist)
