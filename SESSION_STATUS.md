@@ -1,8 +1,24 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 9 ✅
-- 다음 세션: SESSION 10 (Gemini 고부하 해소 후 정성 평가 5개 케이스 실 측정)
+- 완료 세션: SESSION 9 PATCH B ✅
+- 다음 세션: SESSION 10 (정성 평가 5개 케이스 실 측정 — 가방/색상/중복제거 개선 확인)
+
+## SESSION 9 PATCH B: ✅ 완료 (2026-05-01) — 가방/색상/중복제거 본질 개선
+
+### Fix B1~B7 완료
+- **Fix B1**: accessory 점수 공식 재조정 — visual_sim 40%→60%, mood_align 30%→10%
+- **Fix B2+B7**: 카테고리별 클러스터링 임계값 — 의류(strong 0.90/weak 0.82), 액세서리(strong 0.85/weak 0.75)
+- **Fix B3**: 모델코드 정규식 개선 — 6자리+ 숫자, 영문+숫자 혼합, 다중 구분자 지원
+- **Fix B4**: 클러스터 메타 풍부화 — min_price/max_price/other_sellers/cluster_size
+- **Fix B5**: bbox↔detected_items 교차 검증 + chain-of-thought 프롬프트 + Naver 0건 fallback
+- **Fix B6**: RGB→HSV 히스토그램 + K-means dominant color (색상 매칭 30%)
+- **Fix B7**: 의류 클러스터링 색상 안전장치 — color_sim < 0.60 시 분리
+
+### 배포
+- Cloud Run: https://fashion-search-dibvogjuma-du.a.run.app (scikit-learn 포함)
+- Cloudflare Pages: https://cloi.pages.dev
+- git push: f19677b → origin/main
 
 ## SESSION 9: ✅ 완료 (2026-05-01) — 매칭 정확도 본질 개선
 
