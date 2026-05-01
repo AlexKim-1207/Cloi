@@ -46,6 +46,10 @@ function v3ToProduct(p: ProductCardV3): Product {
     link: p.link,
     mallName: p.mall_name ?? '',
     category: '',
+    cluster_size: p.cluster_size,
+    min_price: p.min_price,
+    max_price: p.max_price,
+    other_sellers: p.other_sellers,
   };
 }
 

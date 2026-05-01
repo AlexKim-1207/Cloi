@@ -154,6 +154,11 @@ export default function ProductCard({
         <p style={{ marginTop: 8, fontSize: 16, fontWeight: 700, color: '#2c241f' }}>
           {product.price.toLocaleString()}원
         </p>
+        {(product.cluster_size ?? 1) > 1 && (
+          <p style={{ marginTop: 4, fontSize: 11, color: '#c3849a', fontWeight: 600 }}>
+            {product.cluster_size}개 판매처 최저가
+          </p>
+        )}
       </div>
     </button>
   );

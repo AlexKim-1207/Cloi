@@ -1,3 +1,10 @@
+export interface OtherSeller {
+  mall_name: string;
+  price: number | null;
+  link: string;
+  product_id: string;
+}
+
 export interface Product {
   id: string;
   title: string;       // 상품명 (HTML 태그 제거 필요)
@@ -7,6 +14,10 @@ export interface Product {
   mallName: string;    // 쇼핑몰 이름 (무신사, 에이블리 등)
   brand?: string;      // 브랜드명
   category?: string;   // 카테고리
+  cluster_size?: number;
+  min_price?: number | null;
+  max_price?: number | null;
+  other_sellers?: OtherSeller[];
 }
 
 export type FashionCategory = 'top' | 'bottom' | 'shoes' | 'outer' | 'bag' | 'accessory';
@@ -116,9 +127,14 @@ export interface ProductCardV3 {
   link: string;
   mall_name: string | null;
   match_score: number;
-  clip_similarity: number;
-  mood_match: number;
+  visual_similarity: number;
+  mood_alignment: number;
   price_fit: number;
+  naver_rank_score: number;
+  cluster_size: number;
+  min_price: number | null;
+  max_price: number | null;
+  other_sellers: OtherSeller[];
 }
 
 export interface TabSectionV3 {
@@ -128,7 +144,16 @@ export interface TabSectionV3 {
   items: ProductCardV3[];
 }
 
+export interface DetectedItemMeta {
+  tab_id: string;
+  category: string;
+  description: string;
+  has_naver_results: boolean;
+  naver_count: number;
+}
+
 export interface SearchResponseV3 {
+  session_id?: string;
   image_hash: string;
   overall_style: string;
   detected_attributes: {
@@ -141,6 +166,7 @@ export interface SearchResponseV3 {
   tabs: TabSectionV3[];
   total_latency_ms: number;
   cache_hit: boolean;
+  detected_items_meta?: DetectedItemMeta[];
   _source: 'v3';
   _imageHash: string;
 }
