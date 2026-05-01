@@ -6,18 +6,36 @@ import os
 import re
 
 from PIL import Image, ImageFilter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 logger = logging.getLogger(__name__)
 
+VALID_LABELS = {
+    'face',
+    'top_outer', 'top_inner', 'outer', 'bottom', 'dress',
+    'shoes', 'bag',
+    'accessory_ring', 'accessory_necklace', 'accessory_earring',
+    'accessory_belt', 'accessory_hat', 'accessory_watch',
+}
+
 
 class BoundingBox(BaseModel):
-    label: str  # 'face', 'top', 'outer', 'bottom', 'shoes', 'bag', etc.
+    label: str
     x1: int
     y1: int
     x2: int
     y2: int
     confidence: float = 1.0
+
+    @field_validator('label')
+    @classmethod
+    def validate_label(cls, v: str) -> str:
+        v_lower = v.lower().strip()
+        if v_lower == 'top':
+            return 'top_outer'
+        if v_lower not in VALID_LABELS:
+            logger.warning("[BoundingBox] 알 수 없는 레이블: %s", v)
+        return v_lower
 
 
 class DetectionResult(BaseModel):
@@ -25,15 +43,34 @@ class DetectionResult(BaseModel):
 
 
 _DETECTION_PROMPT = """
-이미지 속 다음 영역들의 bounding box를 정수 좌표(0~1000 정규화)로 반환하라:
+이미지에서 사람의 얼굴과 모든 의류/액세서리 영역을 빠짐없이 탐지하라.
+각 영역을 bounding box(정수 좌표, 0~1000 정규화)로 반환한다.
+
+탐지 가능한 레이블 (해당하는 모든 영역 반환, 같은 레이블도 여러 개 OK):
 - face (얼굴)
-- top, outer, bottom, dress (의류)
-- shoes, bag (잡화)
+- top_outer (위에 걸친 셔츠/카디건/재킷 등 외곽 상의 — 단추 열려있거나 안에 다른 옷 보이면 outer)
+- top_inner (안쪽 상의 — 티셔츠/탱크탑/크롭탑/이너용 셔츠. 위에 다른 옷 걸쳐도 보이면 분리 탐지)
+- outer (코트/패딩/점퍼 — 두꺼운 겉옷)
+- bottom (바지/스커트/반바지)
+- dress (원피스/점프수트)
+- shoes (신발)
+- bag (가방/숄더백/토트백/크로스백)
+- accessory_ring (반지)
+- accessory_necklace (목걸이/펜던트)
+- accessory_earring (귀걸이)
+- accessory_belt (벨트)
+- accessory_hat (모자/베레모/캡)
+- accessory_watch (시계)
+
+규칙:
+- 레이어드 코디(셔츠 안에 티셔츠)는 top_outer + top_inner로 둘 다 탐지
+- 액세서리는 작아도 보이면 반드시 탐지
+- 같은 레이블도 시각적으로 다른 영역이면 여러 개 반환 (예: 양쪽 귀걸이)
+- 의류가 없는 영역은 포함하지 않음
+- confidence는 탐지 확신도 0.0~1.0
 
 JSON 형식으로만 응답:
-{"boxes": [{"label": "face", "x1": 0, "y1": 0, "x2": 100, "y2": 100, "confidence": 0.9}]}
-
-의류가 없는 영역은 포함하지 않는다. 각 레이블당 1개만.
+{"boxes": [{"label": "top_inner", "x1": 0, "y1": 0, "x2": 100, "y2": 100, "confidence": 0.9}]}
 """
 
 _JSON_RE = re.compile(r'\{.*\}', re.DOTALL)
