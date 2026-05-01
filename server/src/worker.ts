@@ -347,7 +347,7 @@ app.post('/api/analyze', async (c) => {
         const upstream = await fetch(`${fashionSearchUrl}/api/search`, {
           method: 'POST',
           body: form,
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.timeout(45000),
         });
 
         if (upstream.ok) {
@@ -558,7 +558,7 @@ app.post('/api/search-image', async (c) => {
 
     const upstream = await fetch(
       `${fashionSearchUrl}/api/search?sort_by=${encodeURIComponent(sortBy)}`,
-      { method: 'POST', body: form, signal: AbortSignal.timeout(30000) },
+      { method: 'POST', body: form, signal: AbortSignal.timeout(45000) },
     );
 
     if (upstream.ok) {

@@ -15,7 +15,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --allow-unauthenticated \
   --memory=2Gi \
   --cpu=2 \
-  --min-instances=0 \
+  --min-instances=1 \
   --max-instances=3 \
   --port=8080 \
   --set-env-vars="EMBEDDER_NAME=fashion_clip,KMP_DUPLICATE_LIB_OK=TRUE,GOOGLE_API_KEY=${GOOGLE_API_KEY},ADMIN_TOKEN=${ADMIN_TOKEN},DEBUG=false,NAVER_CLIENT_ID=${NAVER_CLIENT_ID:-},NAVER_CLIENT_SECRET=${NAVER_CLIENT_SECRET:-}"
