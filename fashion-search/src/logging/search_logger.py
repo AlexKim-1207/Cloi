@@ -16,7 +16,10 @@ _NEW_CLICK_COLUMNS = [
     ("final_score", "REAL"),
     ("rank_position", "INTEGER"),
     ("mood_label", "TEXT"),
-    ("price_tier", "TEXT"),
+    ("session_id", "TEXT"),
+    ("visual_similarity", "REAL"),
+    ("mood_alignment", "REAL"),
+    ("naver_rank_score", "REAL"),
 ]
 
 
@@ -25,7 +28,7 @@ def _get_db_path() -> str:
 
 
 async def init_db() -> None:
-    """search_logs, product_clicks 테이블 생성 + 신규 컬럼 마이그레이션."""
+    """search_logs, product_clicks, product_impressions 테이블 생성 + 마이그레이션."""
     db_path = _get_db_path()
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -49,15 +52,35 @@ async def init_db() -> None:
                 created_at              DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS product_impressions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id      TEXT NOT NULL,
+                image_hash      TEXT NOT NULL,
+                product_id      TEXT NOT NULL,
+                tab_id          TEXT,
+                rank_position   INTEGER,
+                visual_similarity REAL,
+                mood_alignment  REAL,
+                match_score     REAL,
+                clicked         INTEGER DEFAULT 0,
+                created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE INDEX IF NOT EXISTS idx_search_logs_hash
                 ON search_logs (image_hash);
 
             CREATE INDEX IF NOT EXISTS idx_clicks_product
                 ON product_clicks (product_id);
+
+            CREATE INDEX IF NOT EXISTS idx_impressions_session
+                ON product_impressions (session_id);
+
+            CREATE INDEX IF NOT EXISTS idx_impressions_image
+                ON product_impressions (image_hash);
             """
         )
 
-        # 신규 컬럼 마이그레이션 (이미 있으면 무시)
+        # product_clicks 신규 컬럼 마이그레이션
         for col_name, col_type in _NEW_CLICK_COLUMNS:
             try:
                 await db.execute(
@@ -127,6 +150,54 @@ async def log_search(
         logger.warning("[search_logger] 로그 저장 실패: %s", exc)
 
 
+async def log_impressions(
+    session_id: str,
+    image_hash: str,
+    products: list[dict],
+) -> None:
+    """검색 결과 노출 시 모든 상품을 impression으로 기록 (negative pair 데이터)."""
+    try:
+        async with aiosqlite.connect(_get_db_path()) as db:
+            for p in products:
+                await db.execute(
+                    """
+                    INSERT INTO product_impressions (
+                        session_id, image_hash, product_id, tab_id, rank_position,
+                        visual_similarity, mood_alignment, match_score
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        session_id, image_hash,
+                        p.get('product_id', ''),
+                        p.get('tab_id', ''),
+                        p.get('rank_position', 0),
+                        p.get('_visual_sim', 0.0),
+                        p.get('_mood_align', 0.0),
+                        p.get('match_score', 0.0),
+                    ),
+                )
+            await db.commit()
+    except Exception as exc:
+        logger.warning("[search_logger] impression 기록 실패: %s", exc)
+
+
+async def mark_impression_clicked(session_id: str, product_id: str) -> None:
+    """클릭 시 해당 impression 레코드의 clicked=1로 업데이트."""
+    try:
+        async with aiosqlite.connect(_get_db_path()) as db:
+            await db.execute(
+                """
+                UPDATE product_impressions
+                SET clicked = 1
+                WHERE session_id = ? AND product_id = ?
+                """,
+                (session_id, product_id),
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning("[search_logger] impression 업데이트 실패: %s", exc)
+
+
 async def log_click(image_hash: str, product_id: str, category: str) -> None:
     try:
         async with aiosqlite.connect(_get_db_path()) as db:
@@ -149,7 +220,7 @@ async def log_click_v2(
     final_score: float = 0.0,
     rank_position: int = 0,
     mood_label: str = "",
-    price_tier: str = "",
+    session_id: str = "",
 ) -> None:
     try:
         async with aiosqlite.connect(_get_db_path()) as db:
@@ -159,14 +230,14 @@ async def log_click_v2(
                     image_hash, product_id, category,
                     clicked_product_title, clicked_product_image_url,
                     clicked_product_price, final_score, rank_position,
-                    mood_label, price_tier
+                    mood_label, session_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     image_hash, product_id, category,
                     product_title, product_image_url,
                     product_price, final_score, rank_position,
-                    mood_label, price_tier,
+                    mood_label, session_id,
                 ),
             )
             await db.commit()

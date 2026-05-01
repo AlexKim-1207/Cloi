@@ -95,6 +95,7 @@ export async function recordClickV3(
   matchScore: number,
   productTitle?: string,
   productPrice?: number,
+  sessionId?: string,
 ): Promise<void> {
   try {
     await fetch(`${API_BASE}/api/click`, {
@@ -108,6 +109,7 @@ export async function recordClickV3(
         final_score: matchScore,
         product_title: productTitle || '',
         product_price: productPrice || 0,
+        session_id: sessionId || '',
       }),
     });
   } catch {
