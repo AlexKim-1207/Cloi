@@ -1,9 +1,9 @@
 """벡터 기반 복합 소팅 모듈 v3 — 텍스트 휴리스틱 완전 제거."""
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 
-from src.ranking.color_hist import color_similarity
+from src.ranking.color_hist import color_score
 
 
 def cross_modal_mood_score(
@@ -29,8 +29,13 @@ def compute_clothing_score(
     color_sim: float,
     naver_rank_score: float,
 ) -> float:
-    """의류: 시각 매칭 + 색상 매칭. 무드/가격 X."""
-    return visual_sim * 0.80 + color_sim * 0.15 + naver_rank_score * 0.05
+    """의류: 시각 매칭 + 색상 매칭 강화.
+
+    색상 mismatch 시 강한 패널티 (회색 츄리닝 → 핑크 조거 문제 해결).
+    """
+    if color_sim < 0.3:
+        return visual_sim * 0.50 + color_sim * 0.45 + naver_rank_score * 0.05
+    return visual_sim * 0.65 + color_sim * 0.30 + naver_rank_score * 0.05
 
 
 def compute_accessory_score(
@@ -39,12 +44,12 @@ def compute_accessory_score(
     price_fit: float,
     naver_rank_score: float,
 ) -> float:
-    """가방/액세서리: outfit 무드 + 가격대 일치."""
+    """가방/액세서리: 시각 매칭 절대 우선 (60%), 가격대 필터 보조."""
     return (
-        visual_sim * 0.40
-        + mood_align * 0.30
-        + price_fit * 0.20
-        + naver_rank_score * 0.10
+        visual_sim * 0.60
+        + mood_align * 0.10
+        + price_fit * 0.25
+        + naver_rank_score * 0.05
     )
 
 
@@ -74,18 +79,24 @@ def rank_clothing_products(
     products: List[Dict],
     query_image_emb: np.ndarray,
     query_color_hist: np.ndarray,
+    query_dominant_colors: Optional[np.ndarray],
     product_image_embs: Dict[str, np.ndarray],
     product_color_hists: Dict[str, np.ndarray],
+    product_dominant_colors: Dict[str, np.ndarray],
 ) -> List[Dict]:
-    """의류 재랭킹: 시각 80% + 색상 15% + Naver 5%."""
+    """의류 재랭킹: 시각 65% + 색상 30% (HSV+dominant) + Naver 5%."""
     total = len(products)
     for i, p in enumerate(products):
         pid = p.get('product_id', '')
         prod_emb = product_image_embs.get(pid)
         prod_hist = product_color_hists.get(pid)
+        prod_dom = product_dominant_colors.get(pid)
 
         visual_sim = max(0.0, float(np.dot(query_image_emb, prod_emb))) if prod_emb is not None else 0.0
-        color_sim = color_similarity(query_color_hist, prod_hist) if prod_hist is not None else 0.5
+        if prod_hist is not None:
+            color_sim = color_score(query_color_hist, prod_hist, query_dominant_colors, prod_dom)
+        else:
+            color_sim = 0.5
         naver_rank = naver_rank_to_score(i, total)
 
         p['_visual_sim'] = visual_sim
