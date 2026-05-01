@@ -27,3 +27,4 @@ aiosqlite==0.20.0
 google-cloud-storage==2.18.0
 rapidfuzz==3.10.0
 scikit-learn==1.5.0
+rembg==2.0.59
