@@ -1,8 +1,28 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 8 ✅
+- 완료 세션: SESSION 8 PATCH A ✅
 - 다음 세션: SESSION 9 (데이터 1,000건 축적 후 LoRA 학습 활성화)
+
+## SESSION 8 PATCH A: ✅ 완료 (2026-05-01) — Gemini 호출 병렬화
+
+### 변경 내용
+- `_safe_detect_regions` wrapper 추가 (detect 실패 시 None 반환)
+- `_build_query_emb_from_detection` 추가 (미리 받은 detection 활용)
+- `asyncio.gather(analyze_style, attr_coro, _safe_detect_regions)` 3-way 병렬화
+- 순차: analyze_style → detect_regions (step 4→5 직렬) → **병렬: 동시 실행**
+
+### 배포
+- Cloud Run revision: fashion-search-00015-9b7 (4Gi, asia-northeast3)
+- /health: `{"status":"ok","version":"3.0.0","embedder":"fashion_clip"}`
+- 응답 시간: warm uncached ~19s (9탭 복잡 이미지), cache hit ~3ms
+- git commit: e18de58
+
+### 명령어 (SESSION 9 시작)
+```
+cd "C:\Users\Alex KIM\Desktop\사업 프로젝트\인앱토스 1"
+# LoRA 학습 데이터 1,000건 확인 후 training/ 파이프라인 활성화
+```
 
 ## SESSION 8: ✅ 완료 (2026-05-01) — 휴리스틱 제거 + 학습 데이터 인프라
 
