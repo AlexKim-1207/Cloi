@@ -152,10 +152,10 @@ def crop_garment_regions(
     image: Image.Image,
     boxes: list[BoundingBox],
     expand_ratio: float = 0.08,
-) -> dict[str, Image.Image]:
-    """의류별 crop 이미지 dict 반환. 레이블 → PIL Image."""
+) -> dict[str, list[Image.Image]]:
+    """레이블 → crop 이미지 리스트. 같은 레이블 여러 박스 모두 보존."""
     w, h = image.size
-    crops: dict[str, Image.Image] = {}
+    crops: dict[str, list[Image.Image]] = {}
     for box in boxes:
         if box.label == 'face':
             continue
@@ -171,5 +171,5 @@ def crop_garment_regions(
         y1 = max(0, y1 - dy)
         x2 = min(w, x2 + dx)
         y2 = min(h, y2 + dy)
-        crops[box.label] = image.crop((x1, y1, x2, y2))
+        crops.setdefault(box.label, []).append(image.crop((x1, y1, x2, y2)))
     return crops

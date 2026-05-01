@@ -233,17 +233,24 @@ async def _build_per_tab_query_embs(
                 {item.tab_id: None for item in detected_items},
             )
 
+        # Fix 10-5: garment_crops = {label: [Image, ...]} — 같은 레이블 여러 crop 보존
         crop_labels = list(garment_crops.keys())
-        crop_images = list(garment_crops.values())
-        crop_embs = await asyncio.to_thread(embedder.embed, crop_images)
+        crops_per_label: list[list[Image.Image]] = [garment_crops[l] for l in crop_labels]
+
+        # 평탄화 후 임베딩 → 라벨별 평균으로 복원
+        flat_images = [img for sublist in crops_per_label for img in sublist]
+        flat_embs = await asyncio.to_thread(embedder.embed, flat_images)
 
         label_to_emb: dict[str, np.ndarray] = {}
         label_to_hist: dict[str, np.ndarray] = {}
-        for label, emb, crop_img in zip(crop_labels, crop_embs, crop_images):
-            norm = np.linalg.norm(emb) + 1e-8
-            label_to_emb[label] = emb / norm
-            label_to_hist[label] = compute_color_histogram(crop_img)
-            # Fix 10-2: dominant 비활성화 — K-means 호출 제거
+        idx = 0
+        for label, sublist in zip(crop_labels, crops_per_label):
+            n = len(sublist)
+            avg = np.mean(flat_embs[idx:idx + n], axis=0)
+            norm = np.linalg.norm(avg) + 1e-8
+            label_to_emb[label] = avg / norm
+            label_to_hist[label] = compute_color_histogram(sublist[0])
+            idx += n
 
         result_embs: dict[str, np.ndarray] = {}
         result_hists: dict[str, np.ndarray] = {}
