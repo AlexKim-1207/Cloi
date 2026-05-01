@@ -273,6 +273,40 @@ async def _build_per_tab_query_embs(
         )
 
 
+async def _ensure_tab_has_results(
+    detected_items,
+    raw_results: dict[str, list[dict]],
+) -> dict[str, list[dict]]:
+    """Fix 10-6: bag/accessory 탭 raw_results 0건이면 카테고리만으로 fallback."""
+    from src.search.parallel_search import _execute_queries
+
+    empty_critical_tabs = [
+        item for item in detected_items
+        if not raw_results.get(item.tab_id)
+        and (item.tab_id == 'bag' or item.tab_id.startswith('accessory_'))
+    ]
+    if not empty_critical_tabs:
+        return raw_results
+
+    fallback_tab_ids: list[str] = []
+    fallback_coros = []
+    for item in empty_critical_tabs:
+        cat = item.category or item.tab_id
+        queries = [cat, f'여성 {cat}', f'{cat} 추천']
+        fallback_tab_ids.append(item.tab_id)
+        fallback_coros.append(_execute_queries(
+            queries, category=cat, display=20, exclude='used:rental:cbshop',
+        ))
+
+    results_list = await asyncio.gather(*fallback_coros, return_exceptions=True)
+    for tab_id, res in zip(fallback_tab_ids, results_list):
+        if not isinstance(res, (Exception, BaseException)) and res:
+            raw_results[tab_id] = list(res)
+            logger.info("[routes_search] %s 탭 fallback 검색 %d건", tab_id, len(res))
+
+    return raw_results
+
+
 def _sort_tabs(tabs: list[TabSection], sort_by: str) -> list[TabSection]:
     if sort_by in ('relevance', 'quadrant'):
         return tabs
@@ -399,6 +433,9 @@ async def search(
     # 7. detected_items별 병렬 네이버 검색
     raw_results = await search_all_items_v3(style_ctx.detected_items)
 
+    # Fix 10-6: bag/accessory 탭 안전망
+    raw_results = await _ensure_tab_has_results(style_ctx.detected_items, raw_results)
+
     # 8. 탭별: 썸네일 임베딩 + 색상 히스토그램 + dominant 병렬 계산
     tab_products = {
         item.tab_id: raw_results.get(item.tab_id, [])
@@ -437,7 +474,15 @@ async def search(
     for item in style_ctx.detected_items:
         tab_id = item.tab_id
         products = raw_results.get(tab_id, [])
+
         if not products:
+            # Fix 10-6: 빈 탭도 표시 — 탐지는 됐지만 검색 결과 없음 신호
+            tabs.append(TabSection(
+                tab_id=tab_id,
+                label=TAB_LABELS.get(tab_id, item.subcategory or tab_id),
+                description=item.description,
+                items=[],
+            ))
             continue
 
         product_image_embs = product_embs_by_tab.get(tab_id, {})
