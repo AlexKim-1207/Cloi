@@ -8,6 +8,13 @@ __all__ = ["ItemDetail", "StyleContext", "DetectedItem", "MultiItemStyleContext"
 
 # ── v3 API 스키마 ──────────────────────────────────────────────────────────────
 
+class OtherSeller(BaseModel):
+    mall_name: str = ""
+    price: Optional[int] = None
+    link: str = ""
+    product_id: str = ""
+
+
 class ProductCard(BaseModel):
     id: str
     title: str
@@ -18,9 +25,12 @@ class ProductCard(BaseModel):
     match_score: float = 0.0
     visual_similarity: float = 0.0
     mood_alignment: float = 0.0
+    price_fit: float = 0.0
     naver_rank_score: float = 0.0
     cluster_size: int = 1
-    other_sellers: list[dict] = []
+    min_price: Optional[int] = None
+    max_price: Optional[int] = None
+    other_sellers: list[OtherSeller] = []
 
 
 class TabSection(BaseModel):
@@ -38,6 +48,7 @@ class SearchResponse(BaseModel):
     tabs: list[TabSection]
     total_latency_ms: int
     cache_hit: bool = False
+    detected_items_meta: list[dict] = []
 
 
 class ClickRequest(BaseModel):
