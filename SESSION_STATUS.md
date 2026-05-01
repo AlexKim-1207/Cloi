@@ -1,8 +1,54 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 7 ✅
-- 다음 세션: 선택사항 (Rate Limiting, Cold Start 개선, A/B 테스트)
+- 완료 세션: SESSION 8 ✅
+- 다음 세션: SESSION 9 (데이터 1,000건 축적 후 LoRA 학습 활성화)
+
+## SESSION 8: ✅ 완료 (2026-05-01) — 휴리스틱 제거 + 학습 데이터 인프라
+
+### 핵심 변경
+- mood_match (텍스트 키워드) + price_fit (강제 매핑) 폐기
+- 벡터 기반 점수: visual_sim*0.70 + mood_align*0.20 + naver_rank*0.10
+- Gemini bbox 기반 의류 crop + 얼굴 블러 (Phase 4)
+- Naver multi-query (최대 5개) + dedupe + exclude=used:rental:cbshop (Phase 3)
+- SKU 정규화 + 동일 디자인 클러스터링 (Phase 5)
+
+### 데이터 인프라
+- product_impressions 테이블 (session_id 추적, clicked 필드)
+- 상품 스냅샷 GCS 저장 (sessions/ 경로, Naver URL 만료 대비)
+- 학습 파이프라인 스캐폴딩 (training/) — 데이터 1,000건 후 활성화
+
+### 신규 파일
+| 파일 | 설명 |
+|------|------|
+| `fashion-search/src/preprocess/gemini_detector.py` | Gemini bbox + 얼굴 블러 + crop |
+| `fashion-search/src/pricing/normalize.py` | SKU 정규화 + 클러스터링 |
+| `fashion-search/training/data_curator.py` | GCS+SQLite → 학습 데이터셋 |
+| `fashion-search/training/pair_generator.py` | triplet pair 생성 |
+| `fashion-search/training/lora_trainer.py` | LoRA 스캐폴드 |
+| `fashion-search/training/evaluator.py` | gold set 회귀 스캐폴드 |
+| `fashion-search/training/deploy_new_model.py` | 배포 스캐폴드 |
+
+### 수정 파일
+- `src/ranking/mood_ranker.py` — v3 벡터 재랭킹 (휴리스틱 완전 제거)
+- `src/ranking/attribute_classifier.py` — PRICE_TIER_BY_MOOD 제거
+- `apps/api/schemas.py` — visual_similarity/mood_alignment/naver_rank_score, session_id
+- `apps/api/routes_search.py` — v3 파이프라인 통합
+- `src/logging/search_logger.py` — impression 테이블 + log_impressions/mark_impression_clicked
+- `src/storage/user_image_store.py` — save_session_snapshot, cache_product_thumbnail
+- `src/search/parallel_search.py` — search_all_items_v3 (multi-query)
+- `src/search/naver_shopping.py` — exclude 파라미터 추가
+- `src/services/api.ts` — session_id 연동
+
+### 배포
+- Cloud Run revision: fashion-search-00012-* ✅ (https://fashion-search-dibvogjuma-du.a.run.app)
+- CF Worker: cloi-api ✅ (https://cloi-api.kyoung361207.workers.dev)
+- CF Pages: https://55c34f84.cloi.pages.dev ✅
+
+### 다음 세션 명령어
+```
+cat docs/SESSION_9_PROMPT.md
+```
 
 ## SESSION 7: ✅ 완료 (2026-04-29) — 멀티아이템 탐지 + FashionCLIP v3 파이프라인
 
