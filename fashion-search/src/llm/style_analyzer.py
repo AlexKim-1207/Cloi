@@ -11,22 +11,44 @@ from .schemas import MultiItemStyleContext
 
 logger = logging.getLogger(__name__)
 
-_PROMPT = (
-    "이 패션 이미지에서 착용된 모든 아이템을 개별로 탐지해줘. "
-    "상의/이너/아우터/하의/가방/신발/액세서리 전부 포함. "
-    "레이어드된 경우 각각 별도 아이템으로 분리. "
-    "같은 카테고리라도 니트 베스트 + 이너 셔츠는 별도. "
-    "반지/귀걸이/목걸이/벨트/모자/시계 등 액세서리 종류별 개별 탐지. "
-    "각 아이템: "
-    "tab_id(top_outer/top_inner/outer/bottom/dress/shoes/bag/"
-    "accessory_ring/accessory_necklace/accessory_earring/accessory_belt/accessory_hat/accessory_watch), "
-    "category(한글 카테고리명), "
-    "subcategory(세부 종류), "
-    "description(색상+소재+핏+세부디테일 모두 포함한 한국어 설명), "
-    "is_inner(이너 여부), "
-    "searchQueries(네이버쇼핑 검색에 자연스러운 한국어 쿼리 3개). "
-    "얼굴/신체는 무시. 옷/잡화 아이템에만 집중."
-)
+_PROMPT = """이 패션 이미지를 다음 절차로 빠짐없이 분석하라.
+
+## 1단계: 영역별 점검 (각 영역에 시각적으로 보이는 모든 것 나열)
+- 머리: 모자/헤어밴드/헤어핀 등
+- 얼굴/귀: 귀걸이/안경
+- 목: 목걸이/스카프/넥타이
+- 손목: 시계/팔찌
+- 손가락: 반지
+- 상체: 셔츠/티셔츠/니트/카디건/재킷/코트 (레이어드 시 각각 분리)
+- 허리: 벨트
+- 하체: 바지/스커트/원피스
+- 발: 신발
+- 들고/메고 있는 것: 가방/백팩/클러치
+
+## 2단계: 각 보이는 아이템마다 1개 DetectedItem 생성
+필수 필드:
+- tab_id: 다음 중 정확히 하나
+  top_outer, top_inner, outer, bottom, dress, shoes, bag,
+  accessory_ring, accessory_necklace, accessory_earring,
+  accessory_belt, accessory_hat, accessory_watch
+- category: 한글 카테고리명 (예: 셔츠, 청바지, 숄더백)
+- subcategory: 세부 종류 (예: 오버사이즈 셔츠, 스트레이트 데님)
+- description: 색상+소재+핏+세부디테일 한국어 설명 (충분히 상세하게)
+- is_inner: 이너 여부 (true/false)
+- searchQueries: 네이버쇼핑 자연 한국어 쿼리 3개
+
+## 3단계: 자기 검토
+- 작은 액세서리 (반지/귀걸이) 빠뜨리지 않았나?
+- 레이어드된 상의 분리했나? (예: 셔츠 + 안의 티셔츠)
+- 가방을 손에 들고 있어도 탐지했나?
+
+## 출력 규칙
+- 보이는 모든 것 포함. 자신없어도 가능성 있으면 포함.
+- 같은 카테고리(top_inner)도 여러 개 가능.
+- 얼굴/신체 자체는 무시.
+- overall_style_context는 outfit 전체 무드 한국어 1~2문장.
+
+JSON으로만 응답하라."""
 
 
 @retry(

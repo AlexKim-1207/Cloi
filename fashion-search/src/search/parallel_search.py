@@ -78,13 +78,13 @@ async def _naver_search_single(
         )
 
 
-async def _search_multi_query_dedupe(
+async def _execute_queries(
     queries: list[str],
     category: str,
-    display: int = 40,
-    exclude: str = 'used:rental:cbshop',
+    display: int,
+    exclude: str,
 ) -> list[dict]:
-    """3~5개 쿼리 병렬 검색 → productId 기반 dedupe."""
+    """쿼리 목록 병렬 실행 + dedupe."""
     tasks = [
         _naver_search_single(q, category=category, display=display, exclude=exclude)
         for q in queries
@@ -102,7 +102,27 @@ async def _search_multi_query_dedupe(
                 continue
             seen_ids.add(pid)
             merged.append(p)
+    return merged
 
+
+async def _search_multi_query_dedupe(
+    queries: list[str],
+    category: str,
+    display: int = 40,
+    exclude: str = 'used:rental:cbshop',
+) -> list[dict]:
+    """3~5개 쿼리 병렬 검색 → productId 기반 dedupe. 0건 시 fallback 쿼리 시도."""
+    merged = await _execute_queries(queries, category, display, exclude)
+    if merged:
+        return merged[:60]
+
+    # 2차: 카테고리만으로 광범위 검색 (탭 살리기)
+    fallback_queries = [category, f'여성 {category}', f'{category} 추천']
+    logger.info(
+        "[parallel_search] %s 검색 0건 → fallback 쿼리 시도: %s",
+        category, fallback_queries,
+    )
+    merged = await _execute_queries(fallback_queries, category, display, exclude)
     return merged[:60]
 
 
