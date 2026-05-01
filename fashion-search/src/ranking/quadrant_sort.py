@@ -1,24 +1,16 @@
-"""정확도+가격 4분면 소팅."""
+"""정확도+가격 4분면 소팅 — 동적 임계값."""
 import numpy as np
 
-ACCURACY_THRESHOLD = 0.6
+# Fix 10-3: 정적 0.6 → 동적 (해당 batch median + floor)
+DEFAULT_ACCURACY_FLOOR = 0.40   # 모든 점수가 낮아도 quadrant 0 후보 보장
 
 
-def quadrant_key(product: dict, price_median: float) -> tuple:
-    """4분면 정렬 키.
-
-    분면 번호 (낮을수록 우선):
-        0: 정확도 높음 + 가격 낮음 (median 이하)
-        1: 정확도 높음 + 가격 높음
-        2: 정확도 낮음 + 가격 낮음
-        3: 정확도 낮음 + 가격 높음
-
-    같은 분면 내에서는 match_score 내림차순.
-    """
+def quadrant_key(product: dict, price_median: float, score_threshold: float) -> tuple:
+    """4분면 정렬 키. score_threshold는 batch마다 동적 결정."""
     score = product.get('match_score', 0.0)
     price = product.get('price') or 999_999_999
 
-    is_accurate = score >= ACCURACY_THRESHOLD
+    is_accurate = score >= score_threshold
     is_cheap = price <= price_median
 
     if is_accurate and is_cheap:
@@ -34,11 +26,21 @@ def quadrant_key(product: dict, price_median: float) -> tuple:
 
 
 def quadrant_sort(products: list) -> list:
-    """4분면 기준 정렬. 가격 중앙값 기준으로 싸/비싸 구분."""
+    """4분면 기준 정렬. 임계값을 batch median으로 동적 결정."""
     if not products:
         return []
 
     prices = [p.get('price') or 0 for p in products if p.get('price')]
     price_median = float(np.median(prices)) if prices else 50_000.0
 
-    return sorted(products, key=lambda p: quadrant_key(p, price_median))
+    scores = [p.get('match_score', 0.0) for p in products]
+    if scores:
+        score_median = float(np.median(scores))
+        score_threshold = max(DEFAULT_ACCURACY_FLOOR, score_median)
+    else:
+        score_threshold = DEFAULT_ACCURACY_FLOOR
+
+    return sorted(
+        products,
+        key=lambda p: quadrant_key(p, price_median, score_threshold),
+    )
