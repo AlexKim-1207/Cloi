@@ -1,0 +1,85 @@
+[
+  {
+    "case": "T3 outfit",
+    "img": "q003.jpg",
+    "_source": "worker_gemini",
+    "gender": "male",
+    "gender_confidence": 0.95,
+    "price_tier": "budget",
+    "price_range_estimate": {
+      "min": 15000,
+      "max": 80000
+    },
+    "vibe": [
+      "스포티",
+      "캐주얼"
+    ],
+    "season": "all",
+    "categories": [
+      "top_inner",
+      "bottom",
+      "shoes"
+    ],
+    "http_status": 200
+  },
+  {
+    "case": "T4 item",
+    "img": "q004.jpg",
+    "_source": "MISSING",
+    "gender": "MISSING",
+    "gender_confidence": 0,
+    "price_tier": "MISSING",
+    "price_range_estimate": {},
+    "vibe": [],
+    "season": "MISSING",
+    "categories": [],
+    "http_status": 422
+  },
+  {
+    "case": "T5 casual",
+    "img": "q005.jpg",
+    "_source": "MISSING",
+    "gender": "MISSING",
+    "gender_confidence": 0,
+    "price_tier": "MISSING",
+    "price_range_estimate": {},
+    "vibe": [],
+    "season": "MISSING",
+    "categories": [],
+    "http_status": 422
+  },
+  {
+    "case": "T7 fashion",
+    "img": "q007.jpg",
+    "_source": "MISSING",
+    "gender": "MISSING",
+    "gender_confidence": 0,
+    "price_tier": "MISSING",
+    "price_range_estimate": {},
+    "vibe": [],
+    "season": "MISSING",
+    "categories": [],
+    "http_status": 422
+  },
+  {
+    "case": "T10 lookbook",
+    "img": "q010.jpg",
+    "_source": "worker_gemini",
+    "gender": "unisex",
+    "gender_confidence": 0.7,
+    "price_tier": "mid",
+    "price_range_estimate": {
+      "min": 50000,
+      "max": 150000
+    },
+    "vibe": [
+      "캐주얼",
+      "스트리트"
+    ],
+    "season": "fall",
+    "categories": [
+      "shoes"
+    ],
+    "http_status": 200
+  }
+]

@@ -1,8 +1,32 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 11 ✅
-- 다음 세션: SESSION 12 (LightGBM ranker 학습 / FashionCLIP LoRA fine-tune / Cloud Run streaming)
+- 완료 세션: SESSION 12 ✅
+- 다음 세션: SESSION 13 (Track D 다양성 / Track E UX / Track F CI/CD)
+
+## SESSION 12: ✅ 완료 (2026-05-02) — Pages 배포 정상화 + outfit 추론 + Soft Score
+
+### Track A: Pages 배포 정상화 — 완료
+- verify_deploy.sh exit 0 통과 ✅
+- 문제: rollup v4 native binary가 Node.js v24에서 STATUS_STACK_BUFFER_OVERRUN 크래시
+- 해결: esbuild로 대체 빌드 + wrangler pages deploy dist --project-name=cloi
+- _source: worker_gemini 응답 확인 ✅ / Cloud Run /health 200 ✅
+
+### Track B: FASHION_PROMPT outfit 추론 추가 — 완료
+- 4단계 추가: gender/gender_confidence/price_tier/price_range_estimate/season/vibe
+- OutfitMeta 타입 + FullAnalysisResult = AnalysisResult & OutfitMeta
+- 검증: q003.jpg(남성 outfit) gender=male(0.95) price_tier=budget ✅
+
+### Track C: softScoreProducts 미들웨어 — 완료
+- 성별/가격/색상/광고 4개 신호 soft multiplier (hard reject 절대 없음)
+- /api/search/categories: outfit_meta 수신 + soft score 적용
+- Frontend: CategoryAnalysisResult extends OutfitMeta
+
+### Bug Fix: verify_deploy.sh Python cp949→utf-8 인코딩 버그 수정 ✅
+
+### Track D/E/F — SKIP (사용자 승인 필요. 다음 세션에서)
+
+---
 
 ## SESSION 11: ✅ 완료 (2026-05-01) — 아키텍처 본질 회복 + 사용자 체감 정확도 회복
 
