@@ -35,43 +35,78 @@ function stripHtml(html: string): string {
 }
 
 // ─── Gemini 패션 분석 ─────────────────────────────────────────────────────────
-const FASHION_PROMPT = `당신은 한국 패션 이커머스 전문 MD입니다. 이미지 속 착용된 패션 아이템을 카테고리별로 정밀 분석하세요.
+const FASHION_PROMPT = `당신은 한국 패션 이커머스 전문 MD입니다. 이미지를 부위별로 점검하고 모든 의류/액세서리/가방을 빠짐없이 추출하세요.
 
-다음 JSON 형식으로만 응답하세요 (예시):
+## 1단계: 부위별 점검 (보이는 모든 것 나열)
+- 머리: 모자/헤어밴드
+- 얼굴/눈: 선글라스/안경
+- 목: 목걸이/스카프
+- 손목: 시계/팔찌
+- 손: 반지/장갑
+- 상체: 외부(셔츠/카디건/재킷) + 내부(티셔츠/이너) — 레이어드 시 분리
+- 허리: 벨트
+- 하체: 바지/스커트/원피스
+- 발: 신발
+- 손에/어깨에: 가방/숄더백/토트백/쇼핑백/클러치 (있으면 반드시 bag)
+
+## 2단계: 카테고리별 분류 — 다음 8개 키 모두 포함 (없으면 null)
+top_outer  : 외부 상의 (셔츠/카디건/재킷)
+top_inner  : 안쪽 상의 (티셔츠/이너/탱크탑/터틀넥)
+outer      : 두꺼운 겉옷 (코트/패딩/점퍼)
+bottom     : 하의 (바지/스커트/반바지)
+dress      : 원피스/점프수트
+shoes      : 신발
+bag        : 가방/숄더백/토트백/쇼핑백 (들고 있어도 포함)
+accessory  : 액세서리 (선글라스/모자/벨트/시계/목걸이/귀걸이/반지)
+
+## 3단계: 각 카테고리 항목 형식
 {
-  "categories": {
-    "top": {
-      "color": "아이보리",
-      "fit": "오버핏",
-      "material": "코튼",
-      "design": "라운드넥, 민무늬",
-      "style": "캐주얼",
-      "keywords": ["아이보리", "오버핏", "코튼", "라운드넥", "캐주얼", "맨투맨"],
-      "searchQueries": [
-        "아이보리 오버핏 맨투맨",
-        "코튼 라운드넥 스웨트셔츠",
-        "캐주얼 루즈핏 맨투맨 티셔츠"
-      ]
-    },
-    "bottom": null,
-    "shoes": null,
-    "outer": null,
-    "bag": null,
-    "accessory": null
-  },
-  "description": "아이보리 오버핏 맨투맨의 캐주얼 코디"
+  "color": "구체적 색상명 (예: 라이트 베이지, 다크 그레이)",
+  "fit": "오버핏/슬림핏/레귤러/와이드 등",
+  "material": "코튼/울/캐시미어/가죽 등",
+  "design": "디테일 (예: 와이드카라, H라인, 사각프레임)",
+  "subtype": "세부 분류 (top_inner=터틀넥/크롭탑, bag=숄더백/토트백, accessory=선글라스/벨트)",
+  "keywords": ["색상 토큰", "subtype", "fit", "material", "design"],
+  "searchQueries": [
+    "{color} {subtype}",
+    "{color} {fit} {subtype}",
+    "{material} {subtype}"
+  ]
 }
 
-카테고리: top(상의) bottom(하의) shoes(신발) outer(아우터) bag(가방) accessory(액세서리)
-규칙:
-- 확인되지 않는 카테고리는 반드시 null (6개 키 모두 포함)
-- color/fit/material/design/style 각각 구체적으로
-- keywords 4~7개, searchQueries 반드시 3개 (각각 다른 조합)
-- searchQueries: 한국어, 쇼핑몰 검색에 자연스러운 2~4단어
-- 패션 아이템이 없거나 품질이 낮으면 {"error": "IMAGE_QUALITY"}`;
+## 출력 규칙
+- 8개 키 모두 응답에 포함 (없는 항목은 반드시 null)
+- searchQueries 첫 번째는 반드시 색상 + subtype 조합 (예: "베이지 터틀넥")
+- 작은 액세서리도 보이면 포함
+- 가방을 손에 들고 있으면 무시하지 말 것
+- 패션 아이템 0개거나 품질 낮으면 {"error": "IMAGE_QUALITY"}
 
-type FashionCategoryKey = 'top' | 'bottom' | 'shoes' | 'outer' | 'bag' | 'accessory';
-interface CategoryInfo { keywords: string[]; searchQueries: string[] }
+JSON 예시:
+{
+  "categories": {
+    "top_outer": null,
+    "top_inner": {"color": "라이트 베이지", "fit": "슬림핏", "material": "캐시미어 니트", "design": "기본 터틀넥", "subtype": "터틀넥", "keywords": ["라이트 베이지", "터틀넥", "슬림핏", "캐시미어 니트"], "searchQueries": ["라이트 베이지 터틀넥", "베이지 슬림핏 터틀넥", "캐시미어 터틀넥 니트"]},
+    "outer": {"color": "버건디", "fit": "레귤러", "material": "울", "design": "와이드카라 지퍼 롱코트", "subtype": "롱코트", "keywords": ["버건디", "롱코트", "와이드카라", "울"], "searchQueries": ["버건디 롱코트", "버건디 와이드카라 코트", "울 롱코트 여성"]},
+    "bottom": {"color": "다크 그레이", "fit": "H라인", "material": "울", "design": "미디 길이 H라인", "subtype": "미디스커트", "keywords": ["다크 그레이", "미디스커트", "H라인"], "searchQueries": ["다크 그레이 미디스커트", "그레이 H라인 스커트", "울 미디스커트 여성"]},
+    "dress": null, "shoes": null,
+    "bag": {"color": "다양", "fit": "다양", "material": "다양", "design": "쇼핑백 들고 있음", "subtype": "쇼핑백/핸드백", "keywords": ["여성 가방", "토트백"], "searchQueries": ["여성 토트백", "캐주얼 핸드백", "여성 데일리 가방"]},
+    "accessory": {"color": "블랙", "fit": "오버사이즈", "material": "플라스틱", "design": "사각 프레임", "subtype": "선글라스", "keywords": ["블랙 선글라스", "사각", "오버사이즈"], "searchQueries": ["블랙 사각 선글라스", "오버사이즈 선글라스", "여성 선글라스"]}
+  },
+  "description": "버건디 코트 + 베이지 터틀넥 + 그레이 H라인 스커트의 시크한 가을 룩"
+}`;
+
+type FashionCategoryKey =
+  | 'top_outer' | 'top_inner' | 'outer' | 'bottom' | 'dress'
+  | 'shoes' | 'bag' | 'accessory';
+interface CategoryInfo {
+  keywords: string[];
+  searchQueries: string[];
+  color?: string;
+  fit?: string;
+  material?: string;
+  design?: string;
+  subtype?: string;
+}
 interface AnalysisResult {
   categories: Partial<Record<FashionCategoryKey, CategoryInfo | null>>;
   description: string;
@@ -141,6 +176,11 @@ async function analyzeImage(apiKey: string, imageBase64: string, mimeType: strin
         normalized[key as FashionCategoryKey] = {
           keywords: Array.isArray(info.keywords) ? info.keywords as string[] : [],
           searchQueries: queries,
+          color: typeof info.color === 'string' ? info.color : undefined,
+          fit: typeof info.fit === 'string' ? info.fit : undefined,
+          material: typeof info.material === 'string' ? info.material : undefined,
+          design: typeof info.design === 'string' ? info.design : undefined,
+          subtype: typeof info.subtype === 'string' ? info.subtype : undefined,
         };
       }
 
@@ -328,7 +368,7 @@ app.post('/api/analyze', async (c) => {
     }
 
     const result = await analyzeImage(c.env.GEMINI_API_KEY, imageBase64, mimeType);
-    return c.json(result);
+    return c.json({ ...result, _source: 'worker_gemini' });
 
   } catch (err: unknown) {
     const error = err as Error & { code?: string };
@@ -367,11 +407,50 @@ app.post('/api/search', async (c) => {
   }
 });
 
+// ─── 색상 인식 헬퍼 ───────────────────────────────────────────────────────────
+function ensureColorPrefix(queries: string[], color?: string): string[] {
+  if (!color) return queries;
+  const colorTokens = color.split(/\s+/).filter((t) => t.length > 0);
+  return queries.map((q) => {
+    const hasColor = colorTokens.some((t) => q.includes(t));
+    return hasColor ? q : `${color} ${q}`;
+  });
+}
+
+function colorAwareRerank(products: NaverProduct[], color?: string): NaverProduct[] {
+  if (!color) return products;
+  const colorTokens = color.split(/\s+/).filter((t) => t.length >= 2);
+  if (colorTokens.length === 0) return products;
+  const titleHasColor = (p: NaverProduct) =>
+    colorTokens.some((t) => (p.title || '').toLowerCase().includes(t.toLowerCase()));
+  return [...products.filter(titleHasColor), ...products.filter((p) => !titleHasColor(p))];
+}
+
+function dedupeBySku(products: NaverProduct[]): NaverProduct[] {
+  const seen = new Set<string>();
+  const out: NaverProduct[] = [];
+  for (const p of products) {
+    const pidKey = p.id || '';
+    const titleKey = (p.title || '')
+      .replace(/<[^>]+>/g, '')
+      .toLowerCase()
+      .split(/\s+/)
+      .slice(0, 6)
+      .sort()
+      .join(' ');
+    const key = pidKey || titleKey;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
 // ─── POST /api/search/categories — 카테고리별 다중 쿼리 병렬 검색 ────────────
 app.post('/api/search/categories', async (c) => {
   console.log('[POST /api/search/categories] request received');
   try {
-    let categories: Record<string, { keywords: string[]; searchQueries?: string[]; searchQuery?: string } | null>;
+    let categories: Record<string, { keywords: string[]; searchQueries?: string[]; searchQuery?: string; color?: string } | null>;
     try {
       ({ categories } = await c.req.json());
     } catch (jsonErr) {
@@ -387,37 +466,54 @@ app.post('/api/search/categories', async (c) => {
 
     const results = await Promise.all(
       entries.map(async ([category, info]) => {
-        const queries = Array.isArray(info.searchQueries) && info.searchQueries.length > 0
+        const rawQueries = Array.isArray(info.searchQueries) && info.searchQueries.length > 0
           ? info.searchQueries.slice(0, 3)
           : info.searchQuery ? [info.searchQuery]
           : [info.keywords.slice(0, 3).join(' ')];
 
+        const colorEnforcedQueries = ensureColorPrefix(rawQueries, info.color);
+
         try {
           const searchResults = await Promise.all(
-            queries.map((q) =>
+            colorEnforcedQueries.map((q) =>
               searchNaver(c.env.NAVER_CLIENT_ID, c.env.NAVER_CLIENT_SECRET, q, 20, 1)
                 .catch((e) => { console.error(`[/categories] query "${q}" failed:`, serializeError(e)); return null; }),
             ),
           );
-          const seenIds = new Set<string>();
-          const merged = searchResults
+
+          let merged = searchResults
             .filter((r): r is NonNullable<typeof r> => r !== null)
-            .flatMap((r) => r.products)
-            .filter((p) => { if (seenIds.has(p.id)) return false; seenIds.add(p.id); return true; })
-            .slice(0, 40);
+            .flatMap((r) => r.products);
+
+          // 0건이면 원본 쿼리로 재시도
+          if (merged.length === 0 && colorEnforcedQueries[0] !== rawQueries[0]) {
+            const fallbackResults = await Promise.all(
+              rawQueries.map((q) =>
+                searchNaver(c.env.NAVER_CLIENT_ID, c.env.NAVER_CLIENT_SECRET, q, 20, 1)
+                  .catch(() => null),
+              ),
+            );
+            merged = fallbackResults.filter(Boolean).flatMap((r) => r!.products);
+          }
+
+          const deduped = dedupeBySku(merged);
+          const reranked = colorAwareRerank(deduped, info.color).slice(0, 40);
           const totalMax = Math.max(...searchResults.filter(Boolean).map((r) => r!.total), 0);
-          console.log(`[/categories] ${category}: ${merged.length}개 병합`);
-          return { category, keywords: info.keywords, products: merged, total: totalMax, query: queries[0] };
+          console.log(`[/categories] ${category}: color="${info.color}" → ${reranked.length}개`);
+          return { category, keywords: info.keywords, products: reranked, total: totalMax, query: colorEnforcedQueries[0] };
         } catch (catErr) {
           console.error(`[/categories] ${category} 전체 실패:`, serializeError(catErr));
-          return { category, keywords: info.keywords, products: [], total: 0, query: queries[0] };
+          return { category, keywords: info.keywords, products: [], total: 0, query: colorEnforcedQueries[0] };
         }
       }),
     );
 
     const filtered = results.filter((r) => r.products.length > 0);
-    console.log(`[/categories] 응답 카테고리 수: ${filtered.length}`);
-    return c.json({ results: filtered });
+    const missing_categories = Object.entries(categories)
+      .filter(([, v]) => v === null)
+      .map(([k]) => k);
+    console.log(`[/categories] 응답 카테고리 수: ${filtered.length}, 누락: ${missing_categories}`);
+    return c.json({ results: filtered, missing_categories });
 
   } catch (err: unknown) {
     const serialized = serializeError(err);
