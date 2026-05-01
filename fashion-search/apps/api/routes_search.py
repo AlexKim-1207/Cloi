@@ -164,6 +164,50 @@ async def _get_query_embedding(
     return await asyncio.to_thread(embedder.embed_single, pil_image)
 
 
+async def _safe_detect_regions(image_bytes: bytes, mime: str):
+    """detect_regions의 안전 wrapper — 실패 시 None 반환."""
+    try:
+        from src.preprocess.gemini_detector import detect_regions
+        return await detect_regions(image_bytes, mime_type=mime)
+    except Exception as exc:
+        logger.warning("[routes_search] Gemini detect 실패: %s", exc)
+        return None
+
+
+async def _build_query_emb_from_detection(
+    embedder,
+    pil_image: Image.Image,
+    detection,
+) -> np.ndarray:
+    """미리 받아둔 detection 결과로 query embedding 생성.
+
+    detection이 None이거나 boxes 비어있으면 전체 이미지 embedding으로 fallback.
+    """
+    try:
+        if detection is None or not detection.boxes:
+            return await asyncio.to_thread(embedder.embed_single, pil_image)
+
+        from src.preprocess.gemini_detector import (
+            blur_face_regions,
+            crop_garment_regions,
+        )
+        masked_image = blur_face_regions(pil_image, detection.boxes)
+        garment_crops = crop_garment_regions(masked_image, detection.boxes)
+
+        if garment_crops:
+            crop_embs = await asyncio.to_thread(
+                embedder.embed, list(garment_crops.values())
+            )
+            query_emb = np.mean(crop_embs, axis=0)
+            query_emb = query_emb / (np.linalg.norm(query_emb) + 1e-8)
+            return query_emb
+
+        return await asyncio.to_thread(embedder.embed_single, masked_image)
+    except Exception as exc:
+        logger.warning("[routes_search] query emb 생성 실패, fallback: %s", exc)
+        return await asyncio.to_thread(embedder.embed_single, pil_image)
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(
     request: Request,
@@ -206,16 +250,17 @@ async def search(
     except Exception:
         raise HTTPException(status_code=400, detail="이미지 디코딩 실패")
 
-    # 4. 병렬: Gemini 멀티아이템 탐지 + FashionCLIP 속성 추출
+    # 4. 병렬: analyze_style + attribute_classifier + Gemini bbox detect (모두 동시)
     try:
         attr_coro = (
             asyncio.to_thread(attribute_classifier.classify_all, pil_image)
             if attribute_classifier
             else _dummy_attributes()
         )
-        style_ctx, attributes = await asyncio.gather(
+        style_ctx, attributes, detection = await asyncio.gather(
             analyze_style(image_bytes, mime_type=mime),
             attr_coro,
+            _safe_detect_regions(image_bytes, mime),
         )
     except Exception as exc:
         logger.error("[routes_search] 분석 실패: %s", exc)
@@ -227,8 +272,8 @@ async def search(
             detail="의류/잡화 아이템을 감지할 수 없습니다. 패션 이미지를 업로드해 주세요.",
         )
 
-    # 5. 쿼리 임베딩 (Gemini crop 적용)
-    query_emb: np.ndarray = await _get_query_embedding(embedder, pil_image, image_bytes, mime)
+    # 5. 쿼리 임베딩 — 미리 받아둔 detection 결과 활용 (Gemini 추가 호출 X)
+    query_emb: np.ndarray = await _build_query_emb_from_detection(embedder, pil_image, detection)
 
     # 6. mood 텍스트 임베딩
     mood_label: str = attributes.get('mood', 'casual street style daily')
