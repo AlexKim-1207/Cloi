@@ -1,18 +1,16 @@
 """벡터 기반 복합 소팅 모듈 v3 — 텍스트 휴리스틱 완전 제거."""
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import numpy as np
+
+from src.ranking.color_hist import color_similarity
 
 
 def cross_modal_mood_score(
     product_image_emb: np.ndarray,
     mood_text_emb: np.ndarray,
 ) -> float:
-    """이미지-텍스트 cross-modal 유사도 (FashionCLIP).
-
-    상품 이미지 임베딩과 detected mood 텍스트 임베딩의 코사인 유사도.
-    텍스트 키워드 매칭이 아닌 벡터 공간에서 무드 일치도 측정.
-    """
+    """이미지-텍스트 cross-modal 유사도 (FashionCLIP)."""
     sim = float(np.dot(product_image_emb, mood_text_emb))
     return max(0.0, min(1.0, sim))
 
@@ -22,14 +20,47 @@ def compute_final_score(
     mood_align: float,
     naver_rank_score: float,
 ) -> float:
-    """벡터 기반 복합 점수 — 텍스트 휴리스틱 완전 제거.
-
-    가중치:
-    - visual_sim: 0.70 (핵심 신호)
-    - mood_align: 0.20 (벡터 기반 무드 일치)
-    - naver_rank_score: 0.10 (텍스트 검색 relevance 보조)
-    """
+    """[레거시] 단일 점수 공식. 신규: compute_clothing_score / compute_accessory_score 사용."""
     return visual_sim * 0.70 + mood_align * 0.20 + naver_rank_score * 0.10
+
+
+def compute_clothing_score(
+    visual_sim: float,
+    color_sim: float,
+    naver_rank_score: float,
+) -> float:
+    """의류: 시각 매칭 + 색상 매칭. 무드/가격 X."""
+    return visual_sim * 0.80 + color_sim * 0.15 + naver_rank_score * 0.05
+
+
+def compute_accessory_score(
+    visual_sim: float,
+    mood_align: float,
+    price_fit: float,
+    naver_rank_score: float,
+) -> float:
+    """가방/액세서리: outfit 무드 + 가격대 일치."""
+    return (
+        visual_sim * 0.40
+        + mood_align * 0.30
+        + price_fit * 0.20
+        + naver_rank_score * 0.10
+    )
+
+
+def price_fit_score(product_price: int, price_range: tuple) -> float:
+    """outfit 무드로 추정한 가격대와 상품 가격의 적합도."""
+    if not product_price or product_price <= 0:
+        return 0.5
+    low, high = price_range
+    if low <= product_price <= high:
+        return 1.0
+    elif product_price < low:
+        ratio = (low - product_price) / max(low, 1)
+        return max(0.3, 1 - ratio * 0.7)
+    else:
+        ratio = (product_price - high) / max(high, 1)
+        return max(0.05, 1 - ratio * 0.8)
 
 
 def naver_rank_to_score(rank: int, total: int) -> float:
@@ -39,6 +70,66 @@ def naver_rank_to_score(rank: int, total: int) -> float:
     return max(0.0, 1.0 - rank / total)
 
 
+def rank_clothing_products(
+    products: List[Dict],
+    query_image_emb: np.ndarray,
+    query_color_hist: np.ndarray,
+    product_image_embs: Dict[str, np.ndarray],
+    product_color_hists: Dict[str, np.ndarray],
+) -> List[Dict]:
+    """의류 재랭킹: 시각 80% + 색상 15% + Naver 5%."""
+    total = len(products)
+    for i, p in enumerate(products):
+        pid = p.get('product_id', '')
+        prod_emb = product_image_embs.get(pid)
+        prod_hist = product_color_hists.get(pid)
+
+        visual_sim = max(0.0, float(np.dot(query_image_emb, prod_emb))) if prod_emb is not None else 0.0
+        color_sim = color_similarity(query_color_hist, prod_hist) if prod_hist is not None else 0.5
+        naver_rank = naver_rank_to_score(i, total)
+
+        p['_visual_sim'] = visual_sim
+        p['_color_sim'] = color_sim
+        p['_mood_align'] = 0.0
+        p['_price_fit'] = 0.0
+        p['_naver_rank'] = naver_rank
+        p['match_score'] = compute_clothing_score(visual_sim, color_sim, naver_rank)
+
+    return sorted(products, key=lambda x: -x['match_score'])
+
+
+def rank_accessory_products(
+    products: List[Dict],
+    query_image_emb: np.ndarray,
+    product_image_embs: Dict[str, np.ndarray],
+    mood_text_emb: np.ndarray,
+    price_range: tuple,
+) -> List[Dict]:
+    """가방/액세서리 재랭킹: 시각 40% + 무드 30% + 가격대 20% + Naver 10%."""
+    total = len(products)
+    for i, p in enumerate(products):
+        pid = p.get('product_id', '')
+        prod_emb = product_image_embs.get(pid)
+
+        if prod_emb is not None:
+            visual_sim = max(0.0, float(np.dot(query_image_emb, prod_emb)))
+            mood_align = cross_modal_mood_score(prod_emb, mood_text_emb)
+        else:
+            visual_sim = 0.0
+            mood_align = 0.0
+
+        pf = price_fit_score(p.get('price', 0), price_range)
+        naver_rank = naver_rank_to_score(i, total)
+
+        p['_visual_sim'] = visual_sim
+        p['_mood_align'] = mood_align
+        p['_price_fit'] = pf
+        p['_naver_rank'] = naver_rank
+        p['match_score'] = compute_accessory_score(visual_sim, mood_align, pf, naver_rank)
+
+    return sorted(products, key=lambda x: -x['match_score'])
+
+
 def rank_products_v3(
     products: List[Dict],
     query_image_emb: np.ndarray,
@@ -46,7 +137,7 @@ def rank_products_v3(
     mood_text_emb: np.ndarray,
     sort_by: str = 'relevance',
 ) -> List[Dict]:
-    """벡터 기반 재랭킹 (v3)."""
+    """[레거시] 벡터 기반 재랭킹 (v3). 신규 코드는 rank_clothing/accessory_products 사용."""
     total = len(products)
 
     for i, p in enumerate(products):
@@ -77,5 +168,5 @@ def rank_products_v3(
 
 
 def rank_products(products, clip_scores, mood_label, price_range, sort_by='relevance'):
-    """[DEPRECATED] Use rank_products_v3 instead."""
-    raise DeprecationWarning("rank_products v2 is deprecated. Use rank_products_v3.")
+    """[DEPRECATED] Use rank_clothing_products / rank_accessory_products."""
+    raise DeprecationWarning("rank_products is deprecated.")
