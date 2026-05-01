@@ -1,8 +1,37 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 9 PATCH B ✅
-- 다음 세션: SESSION 10 (정성 평가 5개 케이스 실 측정 — 가방/색상/중복제거 개선 확인)
+- 완료 세션: SESSION 10 ✅
+- 다음 세션: SESSION 11 (HSV Hue 순환성 + Lab 색공간 + 의류 segmentation + 색상 가중치 단계별 부활)
+
+## SESSION 10: ✅ 완료 (2026-05-01) — 회귀 차단 + CLIP 베이스라인 회복 + bag 탭 보호
+
+### Fix 10-1 ~ 10-6 완료
+- **Fix 10-1** `mood_ranker.py`: clothing score color weight 30% → 0% (회귀 주범 차단, visual_sim 95% + naver 5%)
+- **Fix 10-2** `color_hist.py` + `routes_search.py`: dominant_color K-means 완전 비활성화 (죽은 코드 + latency 절감)
+- **Fix 10-3** `quadrant_sort.py`: ACCURACY_THRESHOLD 정적 0.6 → 동적 batch median + DEFAULT_ACCURACY_FLOOR 0.40
+- **Fix 10-4** `normalize.py`: 클러스터 색상 안전장치 color_min_sim 0.60/0.55 → 0.0 (color signal 회복 전까지)
+- **Fix 10-5** `gemini_detector.py`: crop_garment_regions dict→list (같은 레이블 여러 bbox 보존, 평균 임베딩)
+- **Fix 10-6** `routes_search.py`: bag/accessory 탭 fallback 검색 + 빈 탭도 응답에 포함
+
+### eval 결과 (fashion_clip, 2026-05-01)
+- Recall@10: 0.88 (FAISS 레이어 변화 없음 — 랭킹 변경은 live test로 확인)
+- MRR: 0.3514
+- p50: 136.9ms
+
+### 다음 세션 (SESSION 11) 작업 목록
+```
+- HSV Hue 순환성: min(|h1-h2|, 1-|h1-h2|) 거리 함수
+- Lab 색공간 변환 (CIE Lab — 인간 시각에 가까움)
+- 의류 영역 segmentation (rembg 또는 Gemini bbox 정밀도)
+- 상품 썸네일 center-crop 후 색 추출
+- 색상 가중치 단계별 부활 (5% → 10% → 15%)
+```
+
+### SESSION 11 시작 명령어
+```bash
+cd "C:\Users\Alex KIM\Desktop\사업 프로젝트\인앱토스 1" && claude --dangerously-skip-permissions "docs/SESSION_11_PROMPT.md 정독 후 실행"
+```
 
 ## SESSION 9 PATCH B: ✅ 완료 (2026-05-01) — 가방/색상/중복제거 본질 개선
 
