@@ -19,6 +19,8 @@ class ProductCard(BaseModel):
     visual_similarity: float = 0.0
     mood_alignment: float = 0.0
     naver_rank_score: float = 0.0
+    cluster_size: int = 1
+    other_sellers: list[dict] = []
 
 
 class TabSection(BaseModel):

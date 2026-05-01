@@ -1,12 +1,12 @@
-"""v3 검색 엔드포인트 — 멀티아이템 탐지 + FashionCLIP 속성추출 + 벡터 기반 소팅.
+"""v3 검색 엔드포인트 — 탭별 query embedding + 카테고리별 랭킹 + 4분면 소팅.
 
 파이프라인:
     1. 이미지 bytes 해시 → 캐시 확인
     2. 병렬: Gemini 멀티아이템 탐지 + FashionCLIP 속성 추출 + Gemini bbox 탐지
-    3. 얼굴 블러 + 의류 crop → crop별 FashionCLIP 임베딩 → 평균 query_emb
+    3. 탭별 query embedding 분리 (각 탭의 의류 crop 임베딩 사용)
     4. detected_items별 네이버 병렬 검색 (multi-query + dedupe)
-    5. 탭별: 벡터 기반 재랭킹 (visual_sim*0.70 + mood_align*0.20 + naver_rank*0.10)
-    6. SKU 클러스터링 + impression 로깅 + GCS 스냅샷 + 캐시 저장
+    5. 탭별: 의류(시각80%+색상15%+Naver5%) / 잡화(시각40%+무드30%+가격20%+Naver10%)
+    6. SKU 클러스터링 v2 (이미지 임베딩 기반) + 4분면 소팅 + GCS 스냅샷
 
 엔드포인트:
     POST /api/search            — 이미지 업로드 (multipart/form-data)
@@ -39,8 +39,11 @@ from src.logging.search_logger import (
     log_search,
     mark_impression_clicked,
 )
-from src.pricing.normalize import cluster_similar_products, lowest_price_per_cluster
-from src.ranking.mood_ranker import rank_products_v3
+from src.pricing.normalize import cluster_similar_products_v2, lowest_price_per_cluster
+from src.ranking.color_hist import compute_color_histogram
+from src.ranking.mood_ranker import rank_clothing_products, rank_accessory_products
+from src.ranking.mood_to_price import estimate_price_range_from_mood, is_accessory_tab
+from src.ranking.quadrant_sort import quadrant_sort
 from src.search.parallel_search import search_all_items_v3
 from src.storage.user_image_store import UserImageStore
 
@@ -79,13 +82,13 @@ async def _download_thumbnail(client: httpx.AsyncClient, url: str) -> Optional[I
         return None
 
 
-async def _calc_clip_embeddings(
+async def _calc_clip_embeddings_and_hists(
     embedder,
     products: list[dict],
-) -> dict[str, np.ndarray]:
-    """썸네일 다운로드 + FashionCLIP 임베딩. product_id → embedding dict 반환."""
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """썸네일 다운로드 → FashionCLIP 임베딩 + 색상 히스토그램 동시 계산."""
     if not products or embedder is None:
-        return {}
+        return {}, {}
 
     async with httpx.AsyncClient() as client:
         thumbnails = await asyncio.gather(
@@ -94,19 +97,93 @@ async def _calc_clip_embeddings(
 
     valid_pairs = [(p, t) for p, t in zip(products, thumbnails) if t is not None]
     if not valid_pairs:
-        return {}
+        return {}, {}
 
     valid_products, valid_images = zip(*valid_pairs)
     product_vecs: np.ndarray = await asyncio.to_thread(embedder.embed, list(valid_images))
 
-    return {
-        p.get("product_id", ""): vec
-        for p, vec in zip(valid_products, product_vecs)
-    }
+    embs: dict[str, np.ndarray] = {}
+    hists: dict[str, np.ndarray] = {}
+    for p, vec, img in zip(valid_products, product_vecs, valid_images):
+        pid = p.get("product_id", "")
+        embs[pid] = vec
+        hists[pid] = compute_color_histogram(img)
+
+    return embs, hists
+
+
+async def _build_per_tab_query_embs(
+    embedder,
+    pil_image: Image.Image,
+    detection,
+    detected_items,
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+    """탭별 query embedding + color histogram 생성.
+
+    Returns:
+        (tab_id → query_emb, tab_id → query_color_hist)
+    """
+    if embedder is None:
+        zeros = np.zeros(512)
+        empty_hist = np.zeros(24)
+        return (
+            {item.tab_id: zeros for item in detected_items},
+            {item.tab_id: empty_hist for item in detected_items},
+        )
+
+    fallback_emb = await asyncio.to_thread(embedder.embed_single, pil_image)
+    fallback_hist = compute_color_histogram(pil_image)
+
+    if detection is None or not detection.boxes:
+        return (
+            {item.tab_id: fallback_emb for item in detected_items},
+            {item.tab_id: fallback_hist for item in detected_items},
+        )
+
+    try:
+        from src.preprocess.gemini_detector import blur_face_regions, crop_garment_regions
+        from src.preprocess.tab_mapper import map_tab_to_label
+
+        masked_image = blur_face_regions(pil_image, detection.boxes)
+        garment_crops = crop_garment_regions(masked_image, detection.boxes)
+
+        if not garment_crops:
+            return (
+                {item.tab_id: fallback_emb for item in detected_items},
+                {item.tab_id: fallback_hist for item in detected_items},
+            )
+
+        crop_labels = list(garment_crops.keys())
+        crop_images = list(garment_crops.values())
+        crop_embs = await asyncio.to_thread(embedder.embed, crop_images)
+
+        label_to_emb: dict[str, np.ndarray] = {}
+        label_to_hist: dict[str, np.ndarray] = {}
+        for label, emb, crop_img in zip(crop_labels, crop_embs, crop_images):
+            norm = np.linalg.norm(emb) + 1e-8
+            label_to_emb[label] = emb / norm
+            label_to_hist[label] = compute_color_histogram(crop_img)
+
+        result_embs: dict[str, np.ndarray] = {}
+        result_hists: dict[str, np.ndarray] = {}
+        for item in detected_items:
+            tab_id = item.tab_id
+            label = map_tab_to_label(tab_id, label_to_emb.keys())
+            result_embs[tab_id] = label_to_emb.get(label, fallback_emb) if label else fallback_emb
+            result_hists[tab_id] = label_to_hist.get(label, fallback_hist) if label else fallback_hist
+
+        return result_embs, result_hists
+
+    except Exception as exc:
+        logger.warning("[routes_search] per-tab emb 생성 실패, fallback: %s", exc)
+        return (
+            {item.tab_id: fallback_emb for item in detected_items},
+            {item.tab_id: fallback_hist for item in detected_items},
+        )
 
 
 def _sort_tabs(tabs: list[TabSection], sort_by: str) -> list[TabSection]:
-    if sort_by == 'relevance':
+    if sort_by in ('relevance', 'quadrant'):
         return tabs
 
     def _sort_items(items: list[ProductCard]) -> list[ProductCard]:
@@ -134,36 +211,6 @@ async def _dummy_attributes() -> dict:
     }
 
 
-async def _get_query_embedding(
-    embedder,
-    pil_image: Image.Image,
-    image_bytes: bytes,
-    mime: str,
-) -> np.ndarray:
-    """Gemini bbox로 의류 crop 후 평균 임베딩. 실패 시 전체 이미지 fallback."""
-    try:
-        from src.preprocess.gemini_detector import (
-            blur_face_regions,
-            crop_garment_regions,
-            detect_regions,
-        )
-        detection = await detect_regions(image_bytes, mime_type=mime)
-        masked_image = blur_face_regions(pil_image, detection.boxes)
-        garment_crops = crop_garment_regions(masked_image, detection.boxes)
-
-        if garment_crops:
-            crop_embs = await asyncio.to_thread(
-                embedder.embed, list(garment_crops.values())
-            )
-            query_emb = np.mean(crop_embs, axis=0)
-            query_emb = query_emb / (np.linalg.norm(query_emb) + 1e-8)
-            return query_emb
-    except Exception as exc:
-        logger.warning("[routes_search] Gemini detect 실패, fallback: %s", exc)
-
-    return await asyncio.to_thread(embedder.embed_single, pil_image)
-
-
 async def _safe_detect_regions(image_bytes: bytes, mime: str):
     """detect_regions의 안전 wrapper — 실패 시 None 반환."""
     try:
@@ -174,47 +221,13 @@ async def _safe_detect_regions(image_bytes: bytes, mime: str):
         return None
 
 
-async def _build_query_emb_from_detection(
-    embedder,
-    pil_image: Image.Image,
-    detection,
-) -> np.ndarray:
-    """미리 받아둔 detection 결과로 query embedding 생성.
-
-    detection이 None이거나 boxes 비어있으면 전체 이미지 embedding으로 fallback.
-    """
-    try:
-        if detection is None or not detection.boxes:
-            return await asyncio.to_thread(embedder.embed_single, pil_image)
-
-        from src.preprocess.gemini_detector import (
-            blur_face_regions,
-            crop_garment_regions,
-        )
-        masked_image = blur_face_regions(pil_image, detection.boxes)
-        garment_crops = crop_garment_regions(masked_image, detection.boxes)
-
-        if garment_crops:
-            crop_embs = await asyncio.to_thread(
-                embedder.embed, list(garment_crops.values())
-            )
-            query_emb = np.mean(crop_embs, axis=0)
-            query_emb = query_emb / (np.linalg.norm(query_emb) + 1e-8)
-            return query_emb
-
-        return await asyncio.to_thread(embedder.embed_single, masked_image)
-    except Exception as exc:
-        logger.warning("[routes_search] query emb 생성 실패, fallback: %s", exc)
-        return await asyncio.to_thread(embedder.embed_single, pil_image)
-
-
 @router.post("/search", response_model=SearchResponse)
 async def search(
     request: Request,
     file: UploadFile = File(...),
-    sort_by: str = 'relevance',
+    sort_by: str = 'quadrant',
 ) -> SearchResponse:
-    """패션 이미지 → 멀티아이템 탐지 → 탭별 추천."""
+    """패션 이미지 → 탭별 쿼리 임베딩 + 카테고리별 랭킹 → 4분면 소팅."""
     start = time.monotonic()
     app_state = request.app.state.app_state
     embedder = app_state.embedder
@@ -250,7 +263,7 @@ async def search(
     except Exception:
         raise HTTPException(status_code=400, detail="이미지 디코딩 실패")
 
-    # 4. 병렬: analyze_style + attribute_classifier + Gemini bbox detect (모두 동시)
+    # 4. 병렬: analyze_style + attribute_classifier + Gemini bbox detect
     try:
         attr_coro = (
             asyncio.to_thread(attribute_classifier.classify_all, pil_image)
@@ -272,8 +285,10 @@ async def search(
             detail="의류/잡화 아이템을 감지할 수 없습니다. 패션 이미지를 업로드해 주세요.",
         )
 
-    # 5. 쿼리 임베딩 — 미리 받아둔 detection 결과 활용 (Gemini 추가 호출 X)
-    query_emb: np.ndarray = await _build_query_emb_from_detection(embedder, pil_image, detection)
+    # 5. 탭별 query embedding + color histogram (탭마다 해당 의류 crop 사용)
+    query_embs_by_tab, query_hists_by_tab = await _build_per_tab_query_embs(
+        embedder, pil_image, detection, style_ctx.detected_items
+    )
 
     # 6. mood 텍스트 임베딩
     mood_label: str = attributes.get('mood', 'casual street style daily')
@@ -284,12 +299,13 @@ async def search(
         if mood_text_emb.ndim > 1:
             mood_text_emb = mood_text_emb[0]
     else:
-        mood_text_emb = query_emb  # fallback
+        first_emb = next(iter(query_embs_by_tab.values()), np.zeros(512))
+        mood_text_emb = first_emb
 
-    # 7. detected_items별 병렬 네이버 검색 (multi-query + dedupe)
+    # 7. detected_items별 병렬 네이버 검색
     raw_results = await search_all_items_v3(style_ctx.detected_items)
 
-    # 8. 탭별 임베딩 + 벡터 재랭킹
+    # 8. 탭별: 썸네일 임베딩 + 색상 히스토그램 병렬 계산
     tab_products = {
         item.tab_id: raw_results.get(item.tab_id, [])
         for item in style_ctx.detected_items
@@ -297,15 +313,25 @@ async def search(
     }
 
     emb_tasks = {
-        tab_id: _calc_clip_embeddings(embedder, prods)
+        tab_id: _calc_clip_embeddings_and_hists(embedder, prods)
         for tab_id, prods in tab_products.items()
     }
     product_embs_by_tab: dict[str, dict[str, np.ndarray]] = {}
+    product_hists_by_tab: dict[str, dict[str, np.ndarray]] = {}
     if emb_tasks:
         tab_ids = list(emb_tasks.keys())
         results_list = await asyncio.gather(*emb_tasks.values(), return_exceptions=True)
         for tid, r in zip(tab_ids, results_list):
-            product_embs_by_tab[tid] = r if not isinstance(r, Exception) else {}
+            if not isinstance(r, Exception):
+                embs, hists = r
+                product_embs_by_tab[tid] = embs
+                product_hists_by_tab[tid] = hists
+            else:
+                product_embs_by_tab[tid] = {}
+                product_hists_by_tab[tid] = {}
+
+    # 액세서리용 가격대 추정
+    accessory_price_range = estimate_price_range_from_mood(mood_label)
 
     session_id = str(uuid.uuid4())
     tabs: list[TabSection] = []
@@ -318,15 +344,36 @@ async def search(
             continue
 
         product_image_embs = product_embs_by_tab.get(tab_id, {})
+        product_color_hists = product_hists_by_tab.get(tab_id, {})
+        query_emb = query_embs_by_tab.get(tab_id, np.zeros(512))
+        query_color_hist = query_hists_by_tab.get(tab_id, np.zeros(24))
 
-        # 벡터 재랭킹 top 20 → SKU 클러스터링 → top 5
-        ranked_20 = rank_products_v3(
-            products, query_emb, product_image_embs, mood_text_emb, sort_by='relevance'
-        )[:20]
-        clusters = cluster_similar_products(ranked_20)
-        ranked = lowest_price_per_cluster(clusters)[:5]
+        # _image_emb 필드 주입 (SKU clustering v2용)
+        for p in products:
+            pid = p.get('product_id', '')
+            if pid in product_image_embs:
+                p['_image_emb'] = product_image_embs[pid]
 
-        for rank_pos, p in enumerate(ranked):
+        # 카테고리별 랭킹
+        if is_accessory_tab(tab_id):
+            ranked_20 = rank_accessory_products(
+                products, query_emb, product_image_embs,
+                mood_text_emb, accessory_price_range,
+            )[:20]
+        else:
+            ranked_20 = rank_clothing_products(
+                products, query_emb, query_color_hist,
+                product_image_embs, product_color_hists,
+            )[:20]
+
+        # SKU 클러스터링 v2 (이미지 임베딩 기반)
+        clusters = cluster_similar_products_v2(ranked_20)
+        deduped = lowest_price_per_cluster(clusters)
+
+        # 4분면 소팅 → top 5
+        final_5 = quadrant_sort(deduped)[:5]
+
+        for rank_pos, p in enumerate(final_5):
             all_impression_products.append({
                 'product_id': p.get('product_id', ''),
                 'tab_id': tab_id,
@@ -348,8 +395,10 @@ async def search(
                 visual_similarity=round(p.get('_visual_sim', 0.0), 4),
                 mood_alignment=round(p.get('_mood_align', 0.0), 4),
                 naver_rank_score=round(p.get('_naver_rank', 0.0), 4),
+                cluster_size=p.get('_cluster_size', 1),
+                other_sellers=p.get('_other_sellers', []),
             )
-            for p in ranked
+            for p in final_5
         ]
 
         tabs.append(TabSection(
@@ -374,10 +423,8 @@ async def search(
         cache_hit=False,
     )
 
-    # impression 로깅 (비동기, non-blocking)
     asyncio.create_task(log_impressions(session_id, image_hash, all_impression_products))
 
-    # GCS 스냅샷 + 유저 이미지 저장 (fire-and-forget)
     asyncio.create_task(_user_image_store.save_async(
         image_bytes=image_bytes,
         image_hash=image_hash,
