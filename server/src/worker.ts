@@ -74,6 +74,19 @@ accessory  : 액세서리 (선글라스/모자/벨트/시계/목걸이/귀걸이
   ]
 }
 
+## 4단계: outfit 전체 추론 (사용자 의도 매칭용)
+다음 메타 정보를 응답 root에 함께 출력하세요:
+- gender: 'female' | 'male' | 'unisex' | 'unknown' (눈에 띄는 단서로만 판단)
+- gender_confidence: 0.0~1.0
+- gender_signals: ["하이힐", "메이크업", "여성 특유 핏"] 등 판단 근거 2~5개
+- price_tier: 'budget' | 'mid' | 'premium' | 'luxury'
+  budget = 5만원 미만 평균 / mid = 5~30만원 / premium = 30~100만원 / luxury = 100만원+
+- price_tier_confidence: 0.0~1.0
+- price_signals: ["로고 명확", "모델컷", "럭셔리 패브릭"] 등 판단 근거 2~5개
+- price_range_estimate: { "min": 30000, "max": 200000 } (1 아이템 평균 추정, 원 단위)
+- season: 'spring' | 'summer' | 'fall' | 'winter' | 'all'
+- vibe: ["시크", "캐주얼", "페미닌", "스트리트", "오피스", "스포티"] 중 1~3개
+
 ## 출력 규칙
 - 8개 키 모두 응답에 포함 (없는 항목은 반드시 null)
 - searchQueries 첫 번째는 반드시 색상 + subtype 조합 (예: "베이지 터틀넥")
@@ -92,7 +105,16 @@ JSON 예시:
     "bag": {"color": "다양", "fit": "다양", "material": "다양", "design": "쇼핑백 들고 있음", "subtype": "쇼핑백/핸드백", "keywords": ["여성 가방", "토트백"], "searchQueries": ["여성 토트백", "캐주얼 핸드백", "여성 데일리 가방"]},
     "accessory": {"color": "블랙", "fit": "오버사이즈", "material": "플라스틱", "design": "사각 프레임", "subtype": "선글라스", "keywords": ["블랙 선글라스", "사각", "오버사이즈"], "searchQueries": ["블랙 사각 선글라스", "오버사이즈 선글라스", "여성 선글라스"]}
   },
-  "description": "버건디 코트 + 베이지 터틀넥 + 그레이 H라인 스커트의 시크한 가을 룩"
+  "description": "버건디 코트 + 베이지 터틀넥 + 그레이 H라인 스커트의 시크한 가을 룩",
+  "gender": "female",
+  "gender_confidence": 0.9,
+  "gender_signals": ["여성 핏 크롭탑", "하이힐", "여성형 액세서리"],
+  "price_tier": "mid",
+  "price_tier_confidence": 0.7,
+  "price_signals": ["인디 K-fashion 스타일", "단순 프린트 없음", "신발 캐주얼"],
+  "price_range_estimate": { "min": 30000, "max": 200000 },
+  "season": "fall",
+  "vibe": ["시크", "오피스"]
 }`;
 
 type FashionCategoryKey =
@@ -107,12 +129,25 @@ interface CategoryInfo {
   design?: string;
   subtype?: string;
 }
+interface OutfitMeta {
+  gender?: 'female' | 'male' | 'unisex' | 'unknown';
+  gender_confidence?: number;
+  gender_signals?: string[];
+  price_tier?: 'budget' | 'mid' | 'premium' | 'luxury';
+  price_tier_confidence?: number;
+  price_signals?: string[];
+  price_range_estimate?: { min: number; max: number };
+  season?: string;
+  vibe?: string[];
+}
+
 interface AnalysisResult {
   categories: Partial<Record<FashionCategoryKey, CategoryInfo | null>>;
   description: string;
 }
+type FullAnalysisResult = AnalysisResult & OutfitMeta;
 
-async function analyzeImage(apiKey: string, imageBase64: string, mimeType: string): Promise<AnalysisResult> {
+async function analyzeImage(apiKey: string, imageBase64: string, mimeType: string): Promise<FullAnalysisResult> {
   console.log('[analyzeImage] start, mimeType:', mimeType, 'base64 length:', imageBase64.length);
 
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -188,8 +223,23 @@ async function analyzeImage(apiKey: string, imageBase64: string, mimeType: strin
         throw Object.assign(new Error('이미지에서 옷을 인식하기 어려워요.'), { code: 'IMAGE_QUALITY' });
       }
 
-      console.log('[analyzeImage] success, categories:', Object.keys(normalized).filter((k) => normalized[k as FashionCategoryKey] !== null));
-      return { categories: normalized, description: (parsed.description as string) || '' };
+      const meta: OutfitMeta = {};
+      if (typeof parsed.gender === 'string') meta.gender = parsed.gender as OutfitMeta['gender'];
+      if (typeof parsed.gender_confidence === 'number') meta.gender_confidence = parsed.gender_confidence;
+      if (Array.isArray(parsed.gender_signals)) meta.gender_signals = parsed.gender_signals as string[];
+      if (typeof parsed.price_tier === 'string') meta.price_tier = parsed.price_tier as OutfitMeta['price_tier'];
+      if (typeof parsed.price_tier_confidence === 'number') meta.price_tier_confidence = parsed.price_tier_confidence;
+      if (Array.isArray(parsed.price_signals)) meta.price_signals = parsed.price_signals as string[];
+      if (parsed.price_range_estimate && typeof parsed.price_range_estimate === 'object') {
+        const pr = parsed.price_range_estimate as Record<string, unknown>;
+        if (typeof pr.min === 'number' && typeof pr.max === 'number')
+          meta.price_range_estimate = { min: pr.min, max: pr.max };
+      }
+      if (typeof parsed.season === 'string') meta.season = parsed.season;
+      if (Array.isArray(parsed.vibe)) meta.vibe = parsed.vibe as string[];
+
+      console.log('[analyzeImage] success, categories:', Object.keys(normalized).filter((k) => normalized[k as FashionCategoryKey] !== null), 'gender:', meta.gender, 'price_tier:', meta.price_tier);
+      return { categories: normalized, description: (parsed.description as string) || '', ...meta };
 
     } catch (err: unknown) {
       const error = err as Error & { status?: number; code?: string };
@@ -446,13 +496,76 @@ function dedupeBySku(products: NaverProduct[]): NaverProduct[] {
   return out;
 }
 
+// ─── Soft Score (검열 아닌 추론 — hard reject 절대 금지) ─────────────────────
+interface SoftScoreContext {
+  color?: string;
+  gender?: string;
+  gender_confidence?: number;
+  price_range?: { min: number; max: number };
+  price_tier?: string;
+  category: string;
+}
+
+function softScoreProducts(
+  products: NaverProduct[],
+  ctx: SoftScoreContext,
+): (NaverProduct & { _soft_score?: number })[] {
+  return products
+    .map((p) => {
+      let score = 1.0;
+      const title = (p.title || '').replace(/<[^>]+>/g, '').toLowerCase();
+
+      // 1. 성별 신호 (soft — 반대 성별 토큰 시 신뢰도 비례 페널티)
+      if (ctx.gender && (ctx.gender_confidence ?? 0) > 0.6) {
+        const oppositeTokens =
+          ctx.gender === 'female' ? /남성|남자|맨즈|men['']s|man['']s/i :
+          ctx.gender === 'male'   ? /여성|여자|woman|girl|wife|와이프/i : null;
+        if (oppositeTokens && oppositeTokens.test(title)) {
+          score *= 0.3 + 0.1 * Math.min(1, ctx.gender_confidence!);
+        }
+        const sameTokens =
+          ctx.gender === 'female' ? /여성|여자|woman/i :
+          ctx.gender === 'male'   ? /남성|남자|men['']s/i : null;
+        if (sameTokens && sameTokens.test(title)) score *= 1.1;
+      }
+
+      // 2. 가격 신호 (soft — 범위 대비 과도하게 벗어날 때만 감점)
+      if (ctx.price_range && p.price && p.price > 0) {
+        const { min: lo, max: hi } = ctx.price_range;
+        if (p.price < lo / 5) score *= 0.7;
+        else if (p.price < lo / 2) score *= 0.85;
+        else if (p.price > hi * 5) score *= 0.5;
+        else if (p.price > hi * 2) score *= 0.7;
+        else if (p.price > hi) score *= 0.9;
+      }
+
+      // 3. 색상 신호 (soft — 색상 토큰 미매칭 시 감점)
+      if (ctx.color) {
+        const tokens = ctx.color.split(/\s+/).filter((t) => t.length >= 2);
+        const matched = tokens.some((t) => title.includes(t.toLowerCase()));
+        if (!matched) score *= 0.75;
+      }
+
+      // 4. 광고성 키워드 (미약한 페널티)
+      if (/100%\s*정품|최저가|역대급|행사가|당일출고/i.test(title)) score *= 0.92;
+
+      // 5. 최솟값 보장 (완전 제거 방지)
+      const final = 0.05 + score * 0.95;
+      return { ...p, _soft_score: final };
+    })
+    .sort((a, b) => (b._soft_score ?? 0) - (a._soft_score ?? 0));
+}
+
 // ─── POST /api/search/categories — 카테고리별 다중 쿼리 병렬 검색 ────────────
 app.post('/api/search/categories', async (c) => {
   console.log('[POST /api/search/categories] request received');
   try {
     let categories: Record<string, { keywords: string[]; searchQueries?: string[]; searchQuery?: string; color?: string } | null>;
+    let outfit_meta: OutfitMeta | undefined;
     try {
-      ({ categories } = await c.req.json());
+      const body = await c.req.json();
+      categories = body.categories;
+      outfit_meta = body.outfit_meta as OutfitMeta | undefined;
     } catch (jsonErr) {
       return c.json({ message: '요청 본문 파싱 실패', detail: String(jsonErr) }, 400);
     }
@@ -497,10 +610,18 @@ app.post('/api/search/categories', async (c) => {
           }
 
           const deduped = dedupeBySku(merged);
-          const reranked = colorAwareRerank(deduped, info.color).slice(0, 40);
+          const ctx: SoftScoreContext = {
+            color: info.color,
+            gender: outfit_meta?.gender,
+            gender_confidence: outfit_meta?.gender_confidence,
+            price_range: outfit_meta?.price_range_estimate,
+            price_tier: outfit_meta?.price_tier,
+            category,
+          };
+          const softScored = softScoreProducts(deduped, ctx).slice(0, 40);
           const totalMax = Math.max(...searchResults.filter(Boolean).map((r) => r!.total), 0);
-          console.log(`[/categories] ${category}: color="${info.color}" → ${reranked.length}개`);
-          return { category, keywords: info.keywords, products: reranked, total: totalMax, query: colorEnforcedQueries[0] };
+          console.log(`[/categories] ${category}: color="${info.color}" gender="${ctx.gender}" → ${softScored.length}개`);
+          return { category, keywords: info.keywords, products: softScored, total: totalMax, query: colorEnforcedQueries[0] };
         } catch (catErr) {
           console.error(`[/categories] ${category} 전체 실패:`, serializeError(catErr));
           return { category, keywords: info.keywords, products: [], total: 0, query: colorEnforcedQueries[0] };

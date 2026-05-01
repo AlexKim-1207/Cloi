@@ -38,9 +38,23 @@ export interface CategoryInfo {
   searchQuery: string;
 }
 
-export interface CategoryAnalysisResult {
+export interface OutfitMeta {
+  gender?: 'female' | 'male' | 'unisex' | 'unknown';
+  gender_confidence?: number;
+  gender_signals?: string[];
+  price_tier?: 'budget' | 'mid' | 'premium' | 'luxury';
+  price_tier_confidence?: number;
+  price_signals?: string[];
+  price_range_estimate?: { min: number; max: number };
+  season?: string;
+  vibe?: string[];
+}
+
+export interface CategoryAnalysisResult extends OutfitMeta {
   categories: Partial<Record<FashionCategory, CategoryInfo | null>>;
   description: string;
+  _source?: string;
+  _imageHash?: string;
 }
 
 export interface CategorySearchResult {

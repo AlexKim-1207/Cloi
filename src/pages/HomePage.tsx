@@ -172,7 +172,19 @@ export default function HomePage({
         }
       } else {
         onLoadingStart('searching');
-        const categoryResults = await searchByCategories((analysis as CategoryAnalysisResult).categories);
+        const catAnalysis = analysis as CategoryAnalysisResult;
+        const outfitMeta = catAnalysis.gender ? {
+          gender: catAnalysis.gender,
+          gender_confidence: catAnalysis.gender_confidence,
+          gender_signals: catAnalysis.gender_signals,
+          price_tier: catAnalysis.price_tier,
+          price_tier_confidence: catAnalysis.price_tier_confidence,
+          price_signals: catAnalysis.price_signals,
+          price_range_estimate: catAnalysis.price_range_estimate,
+          season: catAnalysis.season,
+          vibe: catAnalysis.vibe,
+        } : undefined;
+        const categoryResults = await searchByCategories(catAnalysis.categories, outfitMeta);
 
         if (categoryResults.length === 0) {
           onError({

@@ -120,11 +120,12 @@ export async function recordClickV3(
 // 카테고리별 병렬 검색
 export async function searchByCategories(
   categories: CategoryAnalysisResult['categories'],
+  outfitMeta?: import('../types').OutfitMeta,
 ): Promise<CategorySearchResult[]> {
   const res = await fetch(`${API_BASE}/api/search/categories`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ categories }),
+    body: JSON.stringify({ categories, outfit_meta: outfitMeta }),
   });
 
   if (!res.ok) {
