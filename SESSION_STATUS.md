@@ -1,8 +1,45 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 10 ✅
-- 다음 세션: SESSION 11 (HSV Hue 순환성 + Lab 색공간 + 의류 segmentation + 색상 가중치 단계별 부활)
+- 완료 세션: SESSION 11 ✅
+- 다음 세션: SESSION 12 (LightGBM ranker 학습 / FashionCLIP LoRA fine-tune / Cloud Run streaming)
+
+## SESSION 11: ✅ 완료 (2026-05-01) — 아키텍처 본질 회복 + 사용자 체감 정확도 회복
+
+### Track A (Worker 즉효 개선) — 완료
+- **Fix 11A-1** `worker.ts`: FASHION_PROMPT 6카테고리 → 8카테고리 (top_outer/top_inner/outer/bottom/dress/shoes/bag/accessory) + 색상 토큰 강제
+- **Fix 11A-2** `worker.ts`: `ensureColorPrefix()` — searchQueries 색상 prefix 강제 주입
+- **Fix 11A-3** `worker.ts`: `colorAwareRerank()` — Naver 결과 색상 토큰 title 매칭 후순위화
+- **Fix 11A-4** `worker.ts`: `dedupeBySku()` — productId + title prefix 기반 중복 제거
+- **Fix 11A-5** `worker.ts`: `missing_categories` 응답 노출
+- **Fix 11B-2** `worker.ts`: Cloud Run timeout 30s → 45s
+- **Fix 11B-3** `worker.ts`: `_source: 'v3'` / `_source: 'worker_gemini'` 응답 flag
+
+### Track B (Cloud Run cold start 제거) — 완료
+- **Fix 11B-1** `deploy.sh`: `--min-instances=0` → `--min-instances=1`
+- Cloud Run 재배포 (min-instances=1 반영) — 월 ~$20~30 비용 예상
+
+### Track C (v3 색상 신호 복원) — 완료
+- **Fix 11C-1** `color_hist.py`: Lab 3D 히스토그램 + Hue 순환 거리 함수 추가
+- **Fix 11C-2** `segmentation.py` (신규): rembg u2netp 기반 배경 제거
+- **Fix 11C-3** `color_hist.py`: center_crop(ratio=0.6) fallback 추가
+- **mood_ranker.py**: clothing score = visual 85% + Lab color 10% + naver 5% (단계적 부활)
+- `requirements.txt`: `rembg==2.0.59` 추가
+
+### 핵심 아키텍처 발견
+> "SESSION 9/10에서 손댄 코드는 Cold start로 거의 실행되지 않는다. UI는 99% Worker 측 Gemini-only fallback path를 보고 있다."
+> → Worker 직접 개선이 사용자 체감에 즉시 영향. min-instances=1로 v3 path 복원.
+
+### 배포
+- Cloudflare Worker: `cloi-api.kyoung361207.workers.dev` (Track A+B Worker 배포 완료)
+- Cloud Run: Track C 재배포 진행 중 (min-instances=1, rembg 포함)
+
+### SESSION 12 시작 명령어
+```bash
+cd "C:\Users\Alex KIM\Desktop\사업 프로젝트\인앱토스 1" && claude --dangerously-skip-permissions "docs/SESSION_12_PROMPT.md 정독 후 실행"
+```
+
+---
 
 ## SESSION 10: ✅ 완료 (2026-05-01) — 회귀 차단 + CLIP 베이스라인 회복 + bag 탭 보호
 
