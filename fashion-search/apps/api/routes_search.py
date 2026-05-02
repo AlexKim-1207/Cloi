@@ -194,6 +194,7 @@ async def _build_per_tab_query_embs(
     pil_image: Image.Image,
     detection,
     detected_items,
+    preprocess_result=None,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, Optional[np.ndarray]]]:
     """탭별 query embedding + HSV color histogram + dominant color 생성.
 
@@ -212,7 +213,11 @@ async def _build_per_tab_query_embs(
     fallback_emb = await asyncio.to_thread(embedder.embed_single, pil_image)
     fallback_hist = compute_color_histogram(pil_image)
 
-    if detection is None or not detection.boxes:
+    # Track 14A: Grounding DINO preprocess 우선, 없으면 Gemini detection fallback
+    has_preprocess = preprocess_result is not None and bool(preprocess_result.get("garments"))
+    has_detection = detection is not None and bool(detection.boxes)
+
+    if not has_preprocess and not has_detection:
         return (
             {item.tab_id: fallback_emb for item in detected_items},
             {item.tab_id: fallback_hist for item in detected_items},
@@ -223,8 +228,15 @@ async def _build_per_tab_query_embs(
         from src.preprocess.gemini_detector import blur_face_regions, crop_garment_regions
         from src.preprocess.tab_mapper import map_tab_to_label
 
-        masked_image = blur_face_regions(pil_image, detection.boxes)
-        garment_crops = crop_garment_regions(masked_image, detection.boxes)
+        if has_preprocess:
+            masked_image = preprocess_result["masked_image"]  # type: ignore[index]
+            garment_crops: dict[str, list[Image.Image]] = {
+                g["label"]: [g["crop"]] for g in preprocess_result["garments"]  # type: ignore[index]
+            }
+            logger.info("[routes_search] Track 14A: Grounding DINO crops (%d)", len(garment_crops))
+        else:
+            masked_image = blur_face_regions(pil_image, detection.boxes)  # type: ignore[union-attr]
+            garment_crops = crop_garment_regions(masked_image, detection.boxes)  # type: ignore[union-attr]
 
         if not garment_crops:
             return (
@@ -346,6 +358,19 @@ async def _safe_detect_regions(image_bytes: bytes, mime: str):
         return None
 
 
+async def _safe_preprocess_image(pil_image: Image.Image):
+    """Grounding DINO + PaddleOCR + 얼굴 마스킹 전처리 — 실패 시 None 반환.
+
+    Track 14A: 의류 crop + 마스킹 전처리. 모델 미설치 환경에선 None 반환해 기존 경로 사용.
+    """
+    try:
+        from src.preprocess.pipeline import preprocess_image
+        return await asyncio.to_thread(preprocess_image, pil_image)
+    except Exception as exc:
+        logger.warning("[routes_search] preprocess_image 실패 (Track 14A fallback): %s", exc)
+        return None
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(
     request: Request,
@@ -395,10 +420,11 @@ async def search(
             if attribute_classifier
             else _dummy_attributes()
         )
-        style_ctx, attributes, detection = await asyncio.gather(
+        style_ctx, attributes, detection, preprocess_result = await asyncio.gather(
             analyze_style(image_bytes, mime_type=mime),
             attr_coro,
             _safe_detect_regions(image_bytes, mime),
+            _safe_preprocess_image(pil_image),
         )
     except Exception as exc:
         logger.error("[routes_search] 분석 실패: %s", exc)
@@ -414,8 +440,10 @@ async def search(
     style_ctx = _augment_detected_items_from_bbox(style_ctx, detection)
 
     # 5. 탭별 query embedding + color histogram + dominant (탭마다 해당 의류 crop 사용)
+    # Track 14A: preprocess_result 있으면 Grounding DINO crop 우선 사용
     query_embs_by_tab, query_hists_by_tab, query_doms_by_tab = await _build_per_tab_query_embs(
-        embedder, pil_image, detection, style_ctx.detected_items
+        embedder, pil_image, detection, style_ctx.detected_items,
+        preprocess_result=preprocess_result,
     )
 
     # 6. mood 텍스트 임베딩
