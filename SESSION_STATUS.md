@@ -1,8 +1,62 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 13 ✅
-- 다음 세션: SESSION 14 (Subtype hard match / LightGBM ranker / Track D 다양성 / Track E UX)
+- 완료 세션: SESSION 14 ✅
+- 다음 세션: SESSION 15 (Track A Cloud Run 배포 검증 + Gold Set 라벨링 + LTR 학습 데이터 수집)
+
+## SESSION 14: ✅ 완료 (2026-05-02) — Deep Research Report 전면 적용 (Track A~G)
+
+### STEP 0: Deploy 진단
+- verify_deploy.sh q010.jpg → _source: worker_gemini ✅ / 8-key schema ✅ / outfit_meta ✅
+
+### Track A: 의류 전처리 파이프라인 (P0) — 코드 완료 ✅
+- `src/preprocess/garment_detect.py`: Grounding DINO (IDEA-Research/grounding-dino-base)
+- `src/preprocess/text_mask.py`: PaddleOCR PP-OCRv5 한국어 텍스트 마스킹
+- `src/preprocess/face_mask.py`: Haar Cascade 얼굴 마스킹
+- `src/preprocess/pipeline.py`: 4단계 통합 파이프라인
+- `routes_search.py`: _safe_preprocess_image() wrapper + asyncio.gather 통합
+- `requirements.txt`: paddleocr>=2.7.0 + paddlepaddle>=2.5.0 추가
+- ⚠️ Cloud Run 재배포 필요 (무거운 의존성 — 다음 세션 first work)
+
+### Track B: XGBoost LTR Reranker Scaffold (P1) — 완료 ✅
+- `src/retrieval/feature_builder.py`: 14-dim feature vector
+- `src/retrieval/ranker.py`: XGBoostRanker + get_ranker() fallback
+- 학습 데이터 1000건+ 수집 후 실제 학습 (SESSION 15)
+
+### Track C: SKU Matcher + Effective Price (P0) — 완료 ✅
+- `src/pricing/sku_matcher.py`: 모델코드+브랜드+title sim 5-dim score
+- `src/pricing/effective_price.py`: cluster_by_sku + lowest_price_per_cluster
+
+### Track D: Gold Set 600 + 자동 회귀 평가 (P0) — Scaffold 완료 ✅
+- `eval/gold_set/README.md`: 라벨링 가이드 (200/150/150/100 구성)
+- `eval/regression_test.py`: Recall@1/5/20 + MRR 자동 평가
+- `.github/workflows/regression.yml`: PR 자동 평가 CI
+- 실제 600개 라벨링은 다음 세션
+
+### Track E: 임베딩 모델 비교 Scaffold (P1) — 완료 ✅
+- `eval/benchmark_models.py`: FashionCLIP vs OpenCLIP vs SigLIP2 비교
+- GPU 환경 실행 필요 (다음 세션)
+
+### Track F: 법률/opt-in 문서 (P1) — 완료 ✅
+- `app/legal/consent_ko.md`: 필수/선택 동의서
+- `app/legal/takedown_policy.md`: 권리침해 신고 절차
+- `app/legal/checklist.md`: 데이터 수집 합법성 8항목
+
+### Track G: Worker timeout + v3 적중률 (P0) — 완료 ✅
+- `server/src/worker.ts`: timeout 45s → 90s (2곳)
+- `scripts/measure_v3_hit_rate.sh`: v3 path 적중률 측정 스크립트
+- Pages 재배포 + verify_deploy.sh 통과 ✅
+
+### 다음 세션 우선 작업
+1. **Track A Cloud Run 재배포** — paddleocr/paddlepaddle 의존성 설치 + Docker 빌드
+2. **Gold Set 라벨링** — 50개 query 수동 라벨링 → regression_test.py 첫 실행
+3. **LTR 학습 데이터** — 수집 + feature_builder 검증
+4. **SAM 2 통합** — Track A 다음 단계 (현재는 box crop만)
+
+### 다음 세션 명령어
+```
+SESSION 15: Track A Cloud Run 재배포 + Gold Set 라벨링 + LTR 학습 데이터
+```
 
 ## SESSION 13: ✅ 완료 (2026-05-02) — Item-Level Detail Signals (Pattern + Length + Ambiguity)
 
