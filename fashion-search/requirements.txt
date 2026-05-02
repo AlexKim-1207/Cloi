@@ -15,9 +15,9 @@ torch==2.3.0
 torchvision==0.18.0
 transformers>=4.45.0,<5.0
 
-# Track 14A: 의류 전처리 (Grounding DINO + PaddleOCR + 얼굴 마스킹)
-paddleocr>=2.7.0
-paddlepaddle>=2.5.0
+# Track 14A: 의류 전처리 (Grounding DINO + EasyOCR + 얼굴 마스킹)
+# paddlepaddle Python 3.11 wheel 불안정 → EasyOCR (PyTorch 기반, 안정적)
+easyocr>=1.7.0
 
 # Track 14B: LTR Reranker
 xgboost>=2.0.0

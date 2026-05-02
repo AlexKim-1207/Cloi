@@ -1,34 +1,31 @@
-"""PaddleOCR 한국어 OCR로 자막/UI 텍스트 마스킹.
+"""EasyOCR로 자막/UI 텍스트 감지 + 블러 마스킹.
 
-보고서 추천: PP-OCRv5 multilingual (106개 언어 지원)
+paddlepaddle Python 3.11 wheel 불안정 → EasyOCR (PyTorch 기반).
 """
 from typing import List
 import numpy as np
 from PIL import Image, ImageFilter
 
-_ocr = None
+_reader = None
 
 
-def _load():
-    global _ocr
-    if _ocr is None:
-        from paddleocr import PaddleOCR
-        _ocr = PaddleOCR(lang="korean", use_angle_cls=True, show_log=False)
+def _load() -> None:
+    global _reader
+    if _reader is None:
+        import easyocr
+        _reader = easyocr.Reader(["ko", "en"], gpu=False, verbose=False)
 
 
 def detect_text_boxes(img: Image.Image) -> List[List[int]]:
     _load()
-    ocr_engine = _ocr
-    assert ocr_engine is not None
+    assert _reader is not None
     arr = np.array(img)
-    result = ocr_engine.predict(arr)  # PP-OCRv5 API
+    results = _reader.readtext(arr, detail=1)
     boxes: List[List[int]] = []
-    for item in result or []:
-        det_res = item.get("dt_polys") or []
-        for poly in det_res:
-            xs = [int(p[0]) for p in poly]
-            ys = [int(p[1]) for p in poly]
-            boxes.append([min(xs), min(ys), max(xs), max(ys)])
+    for bbox, *_ in results:
+        xs = [int(p[0]) for p in bbox]
+        ys = [int(p[1]) for p in bbox]
+        boxes.append([min(xs), min(ys), max(xs), max(ys)])
     return boxes
 
 
