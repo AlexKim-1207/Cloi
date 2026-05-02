@@ -66,6 +66,9 @@ accessory  : 액세서리 (선글라스/모자/벨트/시계/목걸이/귀걸이
   "material": "코튼/울/캐시미어/가죽 등",
   "design": "디테일 (예: 와이드카라, H라인, 사각프레임)",
   "subtype": "세부 분류 (top_inner=터틀넥/크롭탑, bag=숄더백/토트백, accessory=선글라스/벨트)",
+  "pattern": "의류 표면 무늬 — 단색 | 체크 | 스트라이프 | 플로럴 | 도트 | 카무 | 페이즐리 | 그래픽 | 기타 (색상 아님, 무늬만)",
+  "length": "정확 길이 — 상의:크롭/숏/롱 | 하의:미니/숏/버뮤다/5부/7부/칠부/롱/풀렝스 | 원피스:미니/미디/맥시 | 아우터:크롭/하프/롱 (해당 없으면 null)",
+  "alternative_subtypes": ["소매/길이 모호할 때만 대체 후보 — 예: ['반팔', '민소매'] 또는 ['미니', '버뮤다']. 명확하면 빈 배열 []"],
   "keywords": ["색상 토큰", "subtype", "fit", "material", "design"],
   "searchQueries": [
     "{color} {subtype}",
@@ -73,6 +76,11 @@ accessory  : 액세서리 (선글라스/모자/벨트/시계/목걸이/귀걸이
     "{material} {subtype}"
   ]
 }
+
+규칙:
+- pattern: 무늬가 체크면 반드시 searchQueries 첫 번째에 "체크" 토큰 포함. 단색이면 패턴 토큰 미포함.
+- length: 하의/원피스 특히 중요. 쇼츠=숏, 반바지=숏, 칠부=칠부, 7부=7부, 무릎아래롱=롱.
+- alternative_subtypes: 소매(반팔 vs 민소매), 바지 길이(쇼츠 vs 버뮤다) 불분명 시 두 후보 명시. 명확하면 [].
 
 ## 4단계: outfit 전체 추론 (사용자 의도 매칭용)
 다음 메타 정보를 응답 root에 함께 출력하세요:
@@ -98,9 +106,9 @@ JSON 예시:
 {
   "categories": {
     "top_outer": null,
-    "top_inner": {"color": "라이트 베이지", "fit": "슬림핏", "material": "캐시미어 니트", "design": "기본 터틀넥", "subtype": "터틀넥", "keywords": ["라이트 베이지", "터틀넥", "슬림핏", "캐시미어 니트"], "searchQueries": ["라이트 베이지 터틀넥", "베이지 슬림핏 터틀넥", "캐시미어 터틀넥 니트"]},
-    "outer": {"color": "버건디", "fit": "레귤러", "material": "울", "design": "와이드카라 지퍼 롱코트", "subtype": "롱코트", "keywords": ["버건디", "롱코트", "와이드카라", "울"], "searchQueries": ["버건디 롱코트", "버건디 와이드카라 코트", "울 롱코트 여성"]},
-    "bottom": {"color": "다크 그레이", "fit": "H라인", "material": "울", "design": "미디 길이 H라인", "subtype": "미디스커트", "keywords": ["다크 그레이", "미디스커트", "H라인"], "searchQueries": ["다크 그레이 미디스커트", "그레이 H라인 스커트", "울 미디스커트 여성"]},
+    "top_inner": {"color": "라이트 베이지", "fit": "슬림핏", "material": "캐시미어 니트", "design": "기본 터틀넥", "subtype": "터틀넥", "pattern": "단색", "length": "롱", "alternative_subtypes": [], "keywords": ["라이트 베이지", "터틀넥", "슬림핏", "캐시미어 니트"], "searchQueries": ["라이트 베이지 터틀넥", "베이지 슬림핏 터틀넥", "캐시미어 터틀넥 니트"]},
+    "outer": {"color": "버건디", "fit": "레귤러", "material": "울", "design": "와이드카라 지퍼 롱코트", "subtype": "롱코트", "pattern": "단색", "length": "롱", "alternative_subtypes": [], "keywords": ["버건디", "롱코트", "와이드카라", "울"], "searchQueries": ["버건디 롱코트", "버건디 와이드카라 코트", "울 롱코트 여성"]},
+    "bottom": {"color": "다크 그레이", "fit": "H라인", "material": "울", "design": "미디 길이 H라인", "subtype": "미디스커트", "pattern": "단색", "length": "미디", "alternative_subtypes": [], "keywords": ["다크 그레이", "미디스커트", "H라인"], "searchQueries": ["다크 그레이 미디스커트", "그레이 H라인 스커트", "울 미디스커트 여성"]},
     "dress": null, "shoes": null,
     "bag": {"color": "다양", "fit": "다양", "material": "다양", "design": "쇼핑백 들고 있음", "subtype": "쇼핑백/핸드백", "keywords": ["여성 가방", "토트백"], "searchQueries": ["여성 토트백", "캐주얼 핸드백", "여성 데일리 가방"]},
     "accessory": {"color": "블랙", "fit": "오버사이즈", "material": "플라스틱", "design": "사각 프레임", "subtype": "선글라스", "keywords": ["블랙 선글라스", "사각", "오버사이즈"], "searchQueries": ["블랙 사각 선글라스", "오버사이즈 선글라스", "여성 선글라스"]}
@@ -128,6 +136,9 @@ interface CategoryInfo {
   material?: string;
   design?: string;
   subtype?: string;
+  pattern?: '단색' | '체크' | '스트라이프' | '플로럴' | '도트' | '카무' | '페이즐리' | '그래픽' | '기타';
+  length?: string;
+  alternative_subtypes?: string[];
 }
 interface OutfitMeta {
   gender?: 'female' | 'male' | 'unisex' | 'unknown';
@@ -216,6 +227,9 @@ async function analyzeImage(apiKey: string, imageBase64: string, mimeType: strin
           material: typeof info.material === 'string' ? info.material : undefined,
           design: typeof info.design === 'string' ? info.design : undefined,
           subtype: typeof info.subtype === 'string' ? info.subtype : undefined,
+          pattern: typeof info.pattern === 'string' ? info.pattern as CategoryInfo['pattern'] : undefined,
+          length: typeof info.length === 'string' ? info.length : undefined,
+          alternative_subtypes: Array.isArray(info.alternative_subtypes) ? info.alternative_subtypes as string[] : undefined,
         };
       }
 
@@ -458,6 +472,17 @@ app.post('/api/search', async (c) => {
 });
 
 // ─── 색상 인식 헬퍼 ───────────────────────────────────────────────────────────
+function expandQueriesWithAlternatives(
+  primary: string[],
+  color: string | undefined,
+  alts: string[] | undefined,
+): string[] {
+  if (!alts || alts.length === 0) return primary;
+  const colorPrefix = color ? `${color} ` : '';
+  const altQueries = alts.map((alt) => `${colorPrefix}${alt}`);
+  return [...primary.slice(0, 2), ...altQueries.slice(0, 2)];
+}
+
 function ensureColorPrefix(queries: string[], color?: string): string[] {
   if (!color) return queries;
   const colorTokens = color.split(/\s+/).filter((t) => t.length > 0);
@@ -497,12 +522,26 @@ function dedupeBySku(products: NaverProduct[]): NaverProduct[] {
 }
 
 // ─── Soft Score (검열 아닌 추론 — hard reject 절대 금지) ─────────────────────
+const PATTERN_REGEX: Record<string, RegExp> = {
+  '체크': /체크|타탄|플레이드|gingham|check|tartan|plaid/i,
+  '스트라이프': /스트라이프|줄무늬|stripe|striped/i,
+  '플로럴': /플로럴|꽃무늬|꽃|floral|flower/i,
+  '도트': /도트|땡땡이|폴카|dot|polka/i,
+  '카무': /카무|밀리터리|군복|camo|camouflage/i,
+  '페이즐리': /페이즐리|paisley/i,
+  '그래픽': /그래픽|로고|프린트|graphic|logo|print/i,
+};
+const SHORT_REGEX = /숏|미니|반바지|short|mini|3부|5부|버뮤다|크롭/i;
+const LONG_REGEX = /롱|긴|long|7부|칠부|9부|구부|10부|풀렝스|카프리|capri|맥시/i;
+
 interface SoftScoreContext {
   color?: string;
   gender?: string;
   gender_confidence?: number;
   price_range?: { min: number; max: number };
   price_tier?: string;
+  pattern?: string;
+  length?: string;
   category: string;
 }
 
@@ -549,7 +588,23 @@ function softScoreProducts(
       // 4. 광고성 키워드 (미약한 페널티)
       if (/100%\s*정품|최저가|역대급|행사가|당일출고/i.test(title)) score *= 0.92;
 
-      // 5. 최솟값 보장 (완전 제거 방지)
+      // 5. 패턴 신호 — Gemini 인식 패턴이 단색 아닌데 title에 패턴 토큰 없으면 강한 페널티
+      if (ctx.pattern && ctx.pattern !== '단색' && ctx.pattern !== '기타') {
+        const re = PATTERN_REGEX[ctx.pattern];
+        if (re && !re.test(title)) score *= 0.4;
+      }
+
+      // 6. 길이 신호 — 짧은 의류 추정인데 긴 결과 (역도 동일) 강한 페널티
+      if (ctx.length) {
+        const intendedShort = SHORT_REGEX.test(ctx.length);
+        const intendedLong = LONG_REGEX.test(ctx.length);
+        const titleHasLong = LONG_REGEX.test(title);
+        const titleHasShort = SHORT_REGEX.test(title);
+        if (intendedShort && titleHasLong && !titleHasShort) score *= 0.3;
+        if (intendedLong && titleHasShort && !titleHasLong) score *= 0.3;
+      }
+
+      // 7. 최솟값 보장 (완전 제거 방지)
       const final = 0.05 + score * 0.95;
       return { ...p, _soft_score: final };
     })
@@ -560,7 +615,7 @@ function softScoreProducts(
 app.post('/api/search/categories', async (c) => {
   console.log('[POST /api/search/categories] request received');
   try {
-    let categories: Record<string, { keywords: string[]; searchQueries?: string[]; searchQuery?: string; color?: string } | null>;
+    let categories: Record<string, { keywords: string[]; searchQueries?: string[]; searchQuery?: string; color?: string; pattern?: string; length?: string; alternative_subtypes?: string[] } | null>;
     let outfit_meta: OutfitMeta | undefined;
     try {
       const body = await c.req.json();
@@ -584,7 +639,8 @@ app.post('/api/search/categories', async (c) => {
           : info.searchQuery ? [info.searchQuery]
           : [info.keywords.slice(0, 3).join(' ')];
 
-        const colorEnforcedQueries = ensureColorPrefix(rawQueries, info.color);
+        const expandedQueries = expandQueriesWithAlternatives(rawQueries, info.color, info.alternative_subtypes);
+        const colorEnforcedQueries = ensureColorPrefix(expandedQueries, info.color);
 
         try {
           const searchResults = await Promise.all(
@@ -616,11 +672,13 @@ app.post('/api/search/categories', async (c) => {
             gender_confidence: outfit_meta?.gender_confidence,
             price_range: outfit_meta?.price_range_estimate,
             price_tier: outfit_meta?.price_tier,
+            pattern: info.pattern,
+            length: info.length,
             category,
           };
           const softScored = softScoreProducts(deduped, ctx).slice(0, 40);
           const totalMax = Math.max(...searchResults.filter(Boolean).map((r) => r!.total), 0);
-          console.log(`[/categories] ${category}: color="${info.color}" gender="${ctx.gender}" → ${softScored.length}개`);
+          console.log(`[/categories] ${category}: color="${info.color}" pattern="${info.pattern}" length="${info.length}" gender="${ctx.gender}" → ${softScored.length}개`);
           return { category, keywords: info.keywords, products: softScored, total: totalMax, query: colorEnforcedQueries[0] };
         } catch (catErr) {
           console.error(`[/categories] ${category} 전체 실패:`, serializeError(catErr));
