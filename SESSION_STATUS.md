@@ -1,8 +1,46 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 12 ✅
-- 다음 세션: SESSION 13 (Track D 다양성 / Track E UX / Track F CI/CD)
+- 완료 세션: SESSION 13 ✅
+- 다음 세션: SESSION 14 (Subtype hard match / LightGBM ranker / Track D 다양성 / Track E UX)
+
+## SESSION 13: ✅ 완료 (2026-05-02) — Item-Level Detail Signals (Pattern + Length + Ambiguity)
+
+### STEP 0: Deploy 진단
+- verify_deploy.sh q001.jpg → IMAGE_QUALITY (q001이 패션 이미지 아님, 정상 동작)
+- q010.jpg 직접 테스트 → _source: worker_gemini ✅ SESSION 11/12 코드 production 정상
+
+### Track A: Pattern Signal — 완료 ✅
+- FASHION_PROMPT: pattern 필드 추가 (단색|체크|스트라이프|플로럴|도트|카무|페이즐리|그래픽|기타)
+- CategoryInfo/SoftScoreContext: pattern 필드 추가
+- PATTERN_REGEX: 7종 패턴 정규식
+- softScoreProducts signal 5: 비단색 패턴인데 title에 패턴 토큰 없으면 0.4x 페널티
+- analyzeImage 파싱: pattern 필드 추출 추가
+
+### Track B: Length Signal — 완료 ✅
+- FASHION_PROMPT: length 필드 추가 (상의:크롭/숏/롱 | 하의:미니/숏/버뮤다/7부/칠부/롱/풀렝스)
+- CategoryInfo/SoftScoreContext: length 필드 추가
+- SHORT_REGEX + LONG_REGEX: 길이 정규식
+- softScoreProducts signal 6: 짧은 의류인데 긴 결과 0.3x 페널티 (역도 동일)
+- analyzeImage 파싱: length 필드 추출 추가
+
+### Track C: Ambiguity Handling — 완료 ✅
+- FASHION_PROMPT: alternative_subtypes 필드 추가 (소매/길이 모호할 때 대체 후보)
+- CategoryInfo: alternative_subtypes 필드 추가
+- expandQueriesWithAlternatives: primary 2 + alt 2 쿼리 확장
+- analyzeImage 파싱: alternative_subtypes 추출 추가
+
+### 배포 + 검증
+- Pages 재배포 완료 (Functions bundle 포함): c1257524.cloi.pages.dev
+- live_qa_s13.py 신규: 83% pass (5/6 체크 통과)
+- 필드 검증: q010(shoes.pattern=단색), q030(top_inner.length=롱), q045(top_inner.pattern=단색, bottom.length=풀렝스) ✅
+
+### 본질 원인 해결
+- 사용자 "키워드 잘 들어갔는데 결과 다르다" → Worker 후처리 신호 3개 누락이 원인
+- SESSION 11+12: outfit-level meta (성별/가격/색상) 해결
+- SESSION 13: item-level detail (패턴/길이/모호성) 해결
+
+---
 
 ## SESSION 12: ✅ 완료 (2026-05-02) — Pages 배포 정상화 + outfit 추론 + Soft Score
 
