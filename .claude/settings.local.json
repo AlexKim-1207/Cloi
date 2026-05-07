@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(echo \"Started in background with PID $!\")",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /PID 24844 /F)",
+      "Bash(cmd /c \"taskkill /PID 24844 /F\")",
+      "Bash(cmd:*)",
+      "Bash(kill -9 1972 2042 2089)",
+      "Bash(powershell -Command \"Stop-Process -Id 24844 -Force; Stop-Process -Id 18356 -Force\")",
+      "Bash(curl -s \"https://generativelanguage.googleapis.com/v1beta/models?key=AIzaSyBiqHq8t4n1X4vvScM6d4IBlCJTTfhY16E\")",
+      "Bash(curl -s -H \"X-Naver-Client-Id: Z8X01bim8fkjcvLHYThf\" -H \"X-Naver-Client-Secret: 3yE2DTofUx\" \"https://openapi.naver.com/v1/search/shop.json?query=블랙오버핏맨투맨&display=3\")",
+      "Bash(python3 -m json.tool)"
+    ]
+  }
+}

@@ -32,3 +32,33 @@ Thumbs.db
 *.crt
 *.p12
 certs/
+
+# Security: token-containing scripts
+scripts/setup_token_and_run.bat
+scripts/setup_token*
+scripts/setup_token_and_run.ps1
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+fashion-search/.venv/
+
+# ML artifacts (local-only, big binaries)
+fashion-search/weights/
+fashion-search/artifacts/
+fashion-search/src/data/catalog/*.jpg
+fashion-search/src/data/catalog/images/
+fashion-search/src/data/catalog/meta.json
+
+# Wrangler/build cache
+.wrangler/
+server/.wrangler/
+.bkit/
+dist-test/
+
+# Backup/log dumps
+.env.production
+tail-output.txt
+server/deploy_log.txt

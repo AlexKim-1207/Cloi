@@ -102,6 +102,8 @@ accessory  : 액세서리 (선글라스/모자/벨트/시계/목걸이/귀걸이
 - 가방을 손에 들고 있으면 무시하지 말 것
 - 패션 아이템 0개거나 품질 낮으면 {"error": "IMAGE_QUALITY"}
 
+★ 출력 강제: 반드시 JSON 객체 하나로만 응답한다. 마크다운 헤더(##), 설명 문장, 코드 블록 모두 금지. 응답 첫 글자는 '{', 마지막 글자는 '}'.
+
 JSON 예시:
 {
   "categories": {
@@ -165,7 +167,10 @@ async function analyzeImage(apiKey: string, imageBase64: string, mimeType: strin
   const model = genAI.getGenerativeModel(
     {
       model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-      generationConfig: { temperature: 0.2 },
+      generationConfig: {
+        temperature: 0.2,
+        responseMimeType: "application/json",  // SESSION 14 hotfix: 마크다운 응답 차단, JSON 강제
+      },
       safetySettings: [
         { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },

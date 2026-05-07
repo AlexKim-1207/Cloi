@@ -1,0 +1,55 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)",
+      "Bash(python3 -m *)",
+      "Bash(python -m *)",
+      "Bash(python3 *)",
+      "Bash(uvicorn *)",
+      "Bash(mkdir -p *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(curl *)",
+      "Bash(wrangler *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git merge *)",
+      "Bash(git push *)",
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(git worktree *)",
+      "Bash(netstat *)",
+      "Bash(pkill *)",
+      "Bash(taskkill *)",
+      "Bash(rm -rf *)",
+      "Bash(rm *)",
+      "Bash(wrangler pages deploy *)",
+      "Bash(docker build *)",
+      "Bash(docker run *)",
+      "Bash(docker compose *)",
+      "Bash(touch *)",
+      "Bash(chmod *)",
+      "Bash(tar *)",
+      "Bash(unzip *)",
+      "Bash(gcloud *)",
+      "Bash(node *)",
+      "Bash(powershell *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -ExecutionPolicy Bypass -File \"/c/Users/Alex KIM/Desktop/사업 프로젝트/인앱토스 1/.claude/session-done.ps1\""
+          }
+        ]
+      }
+    ]
+  }
+}

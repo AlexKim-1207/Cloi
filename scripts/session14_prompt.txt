@@ -1,0 +1,229 @@
+docs/SESSION_14_PROMPT.md + uploads/deep-research-report (1).md + 갱신된 CLAUDE.md '🚀 배포 검증 규칙' 정독.
+
+★ 본질 원칙 (보고서 결론):
+"CLIP 튜닝이 아니라, 휴리스틱 제거 → 의류 crop/masking → 다단계 candidate retrieval → LTR reranker → SKU/가격 정규화. LoRA나 Adapter는 그다음."
+
+★ 배포 path 기억 (사고 차단):
+- 사용자 트래픽: cloi.pages.dev/api/* → functions/api/[[route]].ts → server/src/worker.ts
+- worker.ts 수정 시 npm run build + npx wrangler pages deploy dist --project-name=cloi 필수
+- Cloud Run 변경 시 bash fashion-search/deploy.sh
+- 모든 deploy 후 bash scripts/verify_deploy.sh 통과 의무
+- wrangler exit code 무시 (Tee buffering 문제). HTTP 응답으로 판단.
+
+작업 순서 (overnight 자율 실행):
+
+═══════════════════════════════════════════════════════════
+STEP 0. Deploy 진단
+═══════════════════════════════════════════════════════════
+
+bash scripts/verify_deploy.sh fashion-search/eval/queries/q001.jpg
+
+기대: exit 0, _source 응답, 8키 schema, gender/price_tier 응답
+실패 시: npm run build + wrangler pages deploy dist + 30s 후 재 verify
+
+═══════════════════════════════════════════════════════════
+TRACK A. 의류 전처리 — Grounding DINO + PaddleOCR + 얼굴 마스킹 (P0, 가장 큰 임팩트)
+═══════════════════════════════════════════════════════════
+
+목표: 사용자 호소 (cropped 셀카에서 outer/bottom 누락) 직접 해결.
+
+Fix 14A-1. fashion-search/src/preprocess/garment_detect.py 신규:
+  - IDEA-Research/grounding-dino-base 모델
+  - text prompt: "cardigan. sweater. shirt. dress. skirt. pants. shoes. bag. ..."
+  - box_threshold=0.28, text_threshold=0.20
+  - detect_garments(img) → [{label, score, box}, ...]
+
+Fix 14A-2. fashion-search/src/preprocess/text_mask.py 신규:
+  - PaddleOCR (lang='korean', use_angle_cls=True)
+  - detect_text_boxes(img) + blur_boxes(img, boxes)
+
+Fix 14A-3. fashion-search/src/preprocess/face_mask.py 신규:
+  - Haar Cascade (cv2)
+  - detect_faces(img) + blur_faces(img, boxes)
+
+Fix 14A-4. fashion-search/src/preprocess/pipeline.py 신규:
+  - preprocess_image(img) → {garments: [{label, score, box, crop}], face_boxes, text_boxes, masked_image}
+  - 회전 보정 + Grounding DINO + face mask + text mask + crop expand 8%
+
+Fix 14A-5. fashion-search/apps/api/routes_search.py 수정:
+  - 기존 detect_regions 호출을 preprocess_image로 대체
+  - garment crops를 _build_per_tab_query_embs에 전달
+
+requirements.txt 추가:
+  transformers>=4.45.0
+  torch>=2.0.0
+  paddleocr>=2.7.0
+  paddlepaddle>=2.5.0
+  opencv-python>=4.8.0
+
+배포: bash fashion-search/deploy.sh (Cloud Run 재배포, 빌드 시간 길어짐 — 5~10분 예상)
+검증: bash scripts/verify_deploy.sh
+git commit -m "feat(preprocess): Grounding DINO + PaddleOCR + face mask (Track 14A)"
+
+═══════════════════════════════════════════════════════════
+TRACK B. XGBoost LTR Reranker scaffold (P0)
+═══════════════════════════════════════════════════════════
+
+목표: softScoreProducts 수동 multiplier → ML 자동 학습.
+
+Fix 14B-1. fashion-search/src/retrieval/feature_builder.py 신규:
+  - 14개 feature: img_sim_crop, img_sim_context, category_match, color_match,
+    neckline_match, fit_match, title_sim_norm, brand_exact, maker_exact,
+    product_type, seller_score, stock_freshness, shipping_speed_score, explicit_budget_fit
+  - build_features(query_attrs, products, query_emb, product_embs) → (N, 14) ndarray
+
+Fix 14B-2. fashion-search/src/retrieval/ranker.py 신규:
+  - XGBoost rank:ndcg
+  - learning_rate=0.05, max_depth=6, n_estimators=300
+  - FashionRanker class: train, predict, save, load
+
+Fix 14B-3. fashion-search/apps/api/routes_search.py 통합:
+  - artifacts/ranker_v1.json 있으면 사용, 없으면 기존 softScore fallback
+  - 학습 데이터 부족하므로 이번 세션은 scaffold만
+
+requirements.txt 추가:
+  xgboost>=2.0.0
+  lightgbm>=4.0.0
+
+git commit -m "feat(retrieval): XGBoost LTR reranker scaffold (Track 14B)"
+
+═══════════════════════════════════════════════════════════
+TRACK C. SKU Matcher + Effective Price (P0)
+═══════════════════════════════════════════════════════════
+
+목표: same SKU vs same design vs similar item 구분 후 가격 비교.
+
+Fix 14C-1. fashion-search/src/pricing/sku_matcher.py 신규:
+  - normalize_title (한국어 stopwords + replacers)
+  - extract_model_codes (regex)
+  - title_similarity (rapidfuzz token_set_ratio)
+  - sku_score(a, b) → {score, category: same_sku|same_design|similar_item}
+    weights: model_code 0.35, brand 0.15, maker 0.15, title 0.20, image 0.15
+
+Fix 14C-2. fashion-search/src/pricing/effective_price.py 신규:
+  - compute_effective_price (lprice + shipping_fee)
+  - cluster_by_sku (same_sku 묶음)
+  - lowest_price_per_cluster (cluster 내 effective_price 최저 + 다른 판매처 메타)
+
+Fix 14C-3. server/src/worker.ts /api/search/categories 핸들러:
+  - 보강 확인: exclude=used:rental:cbshop 강제 (이미 SESSION 11에서 일부 적용)
+
+git commit -m "feat(pricing): SKU matcher + effective price + cluster (Track 14C)"
+
+═══════════════════════════════════════════════════════════
+TRACK D. Gold Set 600개 scaffold + 자동 회귀 (P0)
+═══════════════════════════════════════════════════════════
+
+목표: PR마다 자동 회귀 평가.
+
+Fix 14D-1. fashion-search/eval/gold_set/README.md 신규:
+  - 200 single_top + 150 layered_multi + 150 outer_fit + 100 accessory
+  - 라벨 2/1/0
+  - labels.jsonl 형식 정의
+
+Fix 14D-2. fashion-search/eval/regression_test.py 신규:
+  - load_gold + recall_at_k + mrr 계산
+  - baseline.json 비교, 5% 이상 regression 시 sys.exit(1)
+  - 첫 50개 query 빠른 평가
+
+Fix 14D-3. .github/workflows/regression.yml 신규:
+  - PR + push to main 트리거
+  - python eval/regression_test.py
+
+git commit -m "feat(eval): gold set 600 + regression test scaffold (Track 14D)"
+
+(실제 600개 라벨링은 별도 작업. 이번엔 scaffold만)
+
+═══════════════════════════════════════════════════════════
+TRACK E. 임베딩 모델 비교 scaffold (P1)
+═══════════════════════════════════════════════════════════
+
+목표: FashionCLIP vs OpenCLIP vs SigLIP2 비교 준비.
+
+Fix 14E-1. fashion-search/eval/benchmark_models.py 신규:
+  - 3 모델 loader (transformers + open_clip)
+  - benchmark(model, gold_set) → {recall@1, recall@5, recall@20, mrr}
+
+requirements.txt 추가:
+  open_clip_torch>=2.20.0
+
+git commit -m "feat(eval): embedding model benchmark scaffold (Track 14E)"
+
+(실제 비교 실행은 GPU 권장. scaffold만 이번 세션)
+
+═══════════════════════════════════════════════════════════
+TRACK F. 법률 / opt-in 문서 (P1)
+═══════════════════════════════════════════════════════════
+
+Fix 14F-1. app/legal/consent_ko.md 신규 (보고서 그대로)
+Fix 14F-2. app/legal/takedown_policy.md 신규 (한국 저작권법 제103조)
+Fix 14F-3. app/legal/checklist.md 신규 (보고서 8항목)
+
+git commit -m "docs(legal): consent + takedown + checklist (Track 14F)"
+
+═══════════════════════════════════════════════════════════
+TRACK G. Worker timeout 90s + Cloud Run path 적중률 측정 (P0)
+═══════════════════════════════════════════════════════════
+
+Fix 14G-1. server/src/worker.ts /api/analyze:
+  - AbortSignal.timeout(90000)  // 45 → 90초
+
+Fix 14G-2. scripts/measure_v3_hit_rate.sh 신규:
+  - 10회 호출 후 _source 분포 출력 (v3 / worker_gemini / none)
+
+배포: cd server && npm run build && cd .. && npx wrangler pages deploy dist --project-name=cloi
+검증: bash scripts/verify_deploy.sh + bash scripts/measure_v3_hit_rate.sh
+목표: v3 적중률 30%+ (이번 세션 후, Track A/G 효과)
+
+git commit -m "ops(worker): timeout 45->90s + v3 hit rate measurement (Track 14G)"
+
+═══════════════════════════════════════════════════════════
+통합 배포 + 라이브 검증
+═══════════════════════════════════════════════════════════
+
+bash fashion-search/deploy.sh  # Cloud Run (Track A 의존성 큼)
+cd server && npm run build && cd ..
+npx wrangler pages deploy dist --project-name=cloi
+sleep 60
+bash scripts/verify_deploy.sh
+bash scripts/measure_v3_hit_rate.sh
+
+5케이스 라이브 테스트:
+- 사용자 셀카 (체크 셔츠 + 미니 쇼츠) → outer/bottom detect 됨?
+- 사용자 셀카 (cropped innerwear) → outer 등장?
+- 럭셔리 lookbook → 전 처리 후 더 정확?
+- 단일 가방 → SKU cluster 동작?
+- 일반 캐주얼 → 회귀 없음?
+
+logs/test_results_s14.json 저장.
+
+═══════════════════════════════════════════════════════════
+종료 절차
+═══════════════════════════════════════════════════════════
+
+1. git push origin main
+2. SESSION_STATUS.md 정직 업데이트 (P0/P1/P2 별 완료 상태)
+3. logs/session14_summary.md 작성:
+   - 적용 fix 목록
+   - v3 적중률 (목표 30%+ 달성?)
+   - 라이브 5케이스 결과
+   - 잔여 P1/P2 작업 (다음 세션)
+4. .claude/session-done.ps1 알람
+
+═══════════════════════════════════════════════════════════
+위험 발견 시 행동 (절대 무한 루프 X)
+═══════════════════════════════════════════════════════════
+
+다음 상황 시 즉시 작업 멈추고 logs/overnight_log에 상태 기록 후 깨끗하게 종료:
+- Cloud Run 빌드 3회 연속 실패 (의존성 문제)
+- Grounding DINO 모델 다운로드 실패
+- PaddleOCR import 에러 반복
+- Worker timeout 90s 적용 후도 Cloud Run /api/search 100s+ 걸림 (= path 여전히 미적중)
+- verify_deploy.sh 통과 후 다시 회귀
+- npm run build 또는 wrangler deploy 5회 연속 실패
+
+이런 경우 SESSION_STATUS.md에 '시도 후 검증 실패 (구체 사유)' 명시 + 다음 세션 우선순위 제안 + 알람.
+
+본질 원칙 두 개:
+1. '시스템 설계 > 모델 튜닝. Grounding DINO + LTR이 LoRA보다 빠른 ROI.'
+2. 'deploy 명령 ≠ production 적용. wrangler pages deploy dist + verify_deploy.sh exit 0 만이 진짜 완료. cloi-api 단독 deploy 효과 없음.'

@@ -88,3 +88,94 @@ git commit → SESSION_STATUS.md 업데이트 → git commit → 알람 실행
 - `rm -rf` 확인 없이 src/ 하위 삭제
 - 카탈로그/인덱스 없이 eval 실행
 - 알람 실행 없이 세션 종료
+- **`wrangler deploy` / `bash deploy.sh` 후 `verify_deploy.sh` 실행 없이 SESSION_STATUS.md "완료" 표기**
+
+---
+
+## 🚀 배포 검증 규칙 (CRITICAL — 반복 실수 차단)
+
+### 배경 (SESSION 11에서 발생한 두 사건)
+**사건 1 (가짜 deploy 보고):** SESSION 11에서 Worker 코드 변경 + `wrangler deploy` 명령 실행했으나 **실제로는 production에 반영 안 됨**. SESSION_STATUS.md엔 "Track A 배포 완료"로 자기 보고. 사용자가 며칠간 옛 코드 응답 보고 "정확도 안 올랐다" 호소.
+
+**사건 2 (잘못된 worker deploy):** SESSION 11/12 진단 중 발견 — 사용자 트래픽은 **`cloi-api` Worker가 아닌 Cloudflare Pages Function** 으로 흐름. `functions/api/[[route]].ts` 가 catch-all로 `worker.ts` 를 import. 즉 `cloi.pages.dev/api/*` 모든 요청은 Pages 빌드의 worker.ts 코드로 처리됨. **`npx wrangler deploy` (cloi-api) 는 사용 안 되는 worker에 deploy하는 의미 없는 작업.** 진짜 production 배포는 `npx wrangler pages deploy dist`.
+
+**원인 정리:**
+- wrangler 인증 만료 또는 deploy 명령 silent fail — Claude가 stderr 무시 + 응답 검증 안 함
+- 그리고 worker.ts 변경 후 `wrangler pages deploy dist` 안 함 → Pages site는 OLD build 그대로
+
+### ⚠️ 진짜 Production Path (반드시 기억)
+
+```
+사용자 → cloi.pages.dev/api/analyze
+         ↓
+       functions/api/[[route]].ts  ← Pages Function (catch-all)
+         ↓ import app from '../../server/src/worker'
+       worker.ts 코드 실행 (Pages build에 포함된 버전)
+```
+
+→ **`server/src/worker.ts` 수정 시 반드시 다음 두 단계 모두 실행:**
+```bash
+# 1. (선택) Worker 단독 배포 — legacy. 안 해도 됨.
+cd server && npx wrangler deploy && cd ..
+
+# 2. ★ 필수 ★ Pages 재빌드 + 재배포 — 이게 진짜 production
+npm run build
+npx wrangler pages deploy dist --project-name=cloi
+```
+
+→ **Pages 재배포 안 하면 worker.ts 변경이 production에 들어가지 않음. SESSION 9~11 모두 이 함정에 걸림.**
+
+### 영구 차단 규칙
+
+#### 1. 모든 배포 명령 후 즉시 검증
+```bash
+# ★ Worker 코드 (worker.ts) 수정 후 — Pages 재배포가 진짜 production
+npm run build
+npx wrangler pages deploy dist --project-name=cloi
+sleep 30   # Pages CDN propagation
+bash scripts/verify_deploy.sh        # cloi.pages.dev 응답으로 검증
+
+# (legacy, 옵션) cloi-api Worker 단독 배포 — Pages Function 안 쓰는 path 만 영향
+cd server && npx wrangler deploy && cd ..
+
+# Cloud Run 배포 후
+bash fashion-search/deploy.sh
+bash scripts/verify_deploy.sh        # v3 path 적중 확인
+```
+
+#### 2. `verify_deploy.sh` 실패 시 행동
+- ❌ SESSION_STATUS.md "완료" 표기 금지
+- ❌ git commit 메시지 "deploy 완료" 표현 금지
+- ❌ 다음 작업 진행 금지
+- ✅ 실패 원인 진단 (인증 / 빌드 에러 / wrangler.toml 경로) 후 재배포
+- ✅ 재배포 + verify 통과까지 반복
+
+#### 3. 수동 응답 검증 (verify_deploy.sh 실패 시 보조)
+```bash
+# Worker가 새 코드로 응답하는지 직접 확인
+curl -X POST https://cloi-api.kyoung361207.workers.dev/api/analyze \
+  -H "Content-Type: application/json" \
+  -d "{\"imageBase64\":\"$(base64 -w 0 < fashion-search/eval/queries/q001.jpg)\",\"mimeType\":\"image/jpeg\"}" \
+  | python -m json.tool | head -30
+
+# 응답에서 확인:
+# - _source 필드 ('v3' 또는 'worker_gemini') ← SESSION 11 적용 증거
+# - categories 키 8개 (top_outer/top_inner/...) ← SESSION 11 schema 증거
+# - gender, price_tier 필드 ← SESSION 12 적용 증거
+```
+
+#### 4. SESSION_STATUS.md 정직 규칙
+"배포 완료" 적기 전 반드시 verify_deploy.sh 출력 확인.
+배포 시도했으나 검증 실패 시 다음 형식 사용:
+```
+- Cloud Run: 배포 완료 + verify_deploy.sh 통과 ✅
+- Worker: 배포 시도 후 verify 실패 (사유: wrangler 인증 만료) ⚠ 다음 세션 first work
+```
+
+#### 5. CI/CD 자동화 도입 (장기)
+GitHub Actions로 `push to main` → 자동 wrangler deploy + verify_deploy.sh 실행.
+실패 시 PR comment로 알림. 수동 deploy 의존 영구 제거.
+
+### 추가 도구
+- `scripts/verify_deploy.sh` — Worker + Cloud Run 응답/latency/schema 자동 검증
+- `scripts/live_qa_*.py` — 5케이스 lookbook 정성 평가 자동화 (SESSION 12+ 추가)
