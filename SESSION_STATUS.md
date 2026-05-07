@@ -1,10 +1,44 @@
 # Cloi 세션 상태 (Claude가 자동 업데이트)
 
 ## 현재 상태
-- 완료 세션: SESSION 14 ✅
-- 다음 세션: SESSION 15 (Track A Cloud Run 배포 검증 + Gold Set 라벨링 + LTR 학습 데이터 수집)
+- 완료 세션: SESSION 16 ✅ (Gemini-only pivot)
+- 다음 세션: SESSION 17 (라이브 5케이스 정확도 측정 + 비용 모니터링)
 
-## SESSION 14: ✅ 완료 (2026-05-02) — Deep Research Report 전면 적용 (Track A~G)
+## SESSION 16: ✅ 완료 (2026-05-07) — Gemini-only Pivot (CLIP/Cloud Run 전면 제거)
+
+### 핵심 결정
+- ★ CLIP + Cloud Run 인프라 전면 제거 (v3 적중률 0%, CPU 처리 100s+ Worker timeout)
+- 사용자 요구: "GPU 없이도 돌아가는 단순 구조 + 정확도 최대화"
+- 결과: Gemini-only 단일 path로 단순화. softScore + Gemini rerank 2-pass.
+
+### 변경사항
+1. **server/src/worker.ts**:
+   - FASHION_SEARCH_URL env binding 제거
+   - /api/analyze: Cloud Run v3 시도 블록 제거 (Gemini 직행)
+   - /api/search-image: Naver-only로 단순화
+   - /api/click: Cloud Run forwarding 제거 (no-op)
+   - FASHION_PROMPT: few-shot 예시 5개 추가 (단일 터틀넥, 풀바디 룩북, cropped 셀카, 단일 가방, 럭셔리 화보)
+   - **geminiRerank() 신규**: Naver 결과 30개 → Gemini가 attributes 일치 top 10 골라냄
+   - /api/search/categories: softScore 후 geminiRerank 통합
+
+2. **server/wrangler.toml**: FASHION_SEARCH_URL var 제거
+3. **fashion-search/ 폴더**: main에서 제거 (archive/fashion-search-v3 브랜치에 보존)
+4. **Cloud Run**: min-instances=0, max-instances=1 (idle 비용 0원)
+5. **scripts/session16_step1_archive.ps1, step2_pivot.ps1**: 자동화
+
+### 비용 변화
+- 이전: Cloud Run idle ~$20-50/월 + Gemini API
+- 현재: Gemini API only (~$5-30/월). 검색당 ~$0.002
+
+### 다음 세션 (SESSION 17) 우선
+1. 라이브 5케이스 정성 평가 (cropped 셀카, 룩북, 단일 가방, 캐주얼, 럭셔리)
+2. Few-shot 효과 측정
+3. Gemini API 비용 추적 (aistudio.google.com/usage)
+4. 1주일 후 Cloud Run 완전 삭제 결정
+
+---
+
+## SESSION 14: ✅ 완료 (2026-05-02) — Deep Research Report 전면 적용 (Track A~G) [archived]
 
 ### STEP 0: Deploy 진단
 - verify_deploy.sh q010.jpg → _source: worker_gemini ✅ / 8-key schema ✅ / outfit_meta ✅

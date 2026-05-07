@@ -10,5 +10,5 @@ mode = "smart"
 [observability]
 enabled = true
 
-[vars]
-FASHION_SEARCH_URL = "https://fashion-search-dibvogjuma-du.a.run.app"
+# SESSION 16: Cloud Run path 제거. Gemini-only로 전환.
+# FASHION_SEARCH_URL 제거됨.

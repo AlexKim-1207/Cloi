@@ -7,11 +7,11 @@ import { cors } from 'hono/cors';
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from '@google/generative-ai';
 
 // ─── 환경변수 타입 ────────────────────────────────────────────────────────────
+// SESSION 16: Gemini-only로 전환. FASHION_SEARCH_URL (Cloud Run) 제거.
 export interface Env {
   GEMINI_API_KEY: string;
   NAVER_CLIENT_ID: string;
   NAVER_CLIENT_SECRET: string;
-  FASHION_SEARCH_URL?: string;
 }
 
 // ─── 에러 직렬화 (Workers에서 Error 객체는 JSON.stringify가 {} 반환) ──────────
@@ -101,6 +101,35 @@ accessory  : 액세서리 (선글라스/모자/벨트/시계/목걸이/귀걸이
 - 작은 액세서리도 보이면 포함
 - 가방을 손에 들고 있으면 무시하지 말 것
 - 패션 아이템 0개거나 품질 낮으면 {"error": "IMAGE_QUALITY"}
+- 사진이 cropped (얼굴+상의 일부만)이라도 — 보이는 것만 분석하고, 안 보이는 카테고리는 null 처리. 추측해서 거짓 응답 만들지 말 것.
+
+## 5단계: few-shot 정답 패턴 (참고용 — 실제 이미지에 맞게 응답)
+
+[예시 A] 단일 베이지 터틀넥 클로즈업:
+- top_inner: {"color":"라이트 베이지","subtype":"터틀넥","fit":"슬림핏","material":"캐시미어","pattern":"단색","length":"롱","searchQueries":["라이트 베이지 터틀넥","베이지 슬림 캐시미어 터틀넥","베이지 캐시미어 니트"]}
+- 다른 카테고리 모두 null
+- gender=female, gender_confidence=0.7, price_tier=mid
+
+[예시 B] 풀바디 룩북 (체크 셔츠 + 미니 쇼츠):
+- top_outer: {"color":"네이비/화이트","subtype":"오버사이즈 셔츠","pattern":"체크","length":"롱","searchQueries":["네이비 체크 오버 셔츠","체크 빅 셔츠 여성","네이비 화이트 깅엄 셔츠"]}
+- bottom: {"color":"베이지","subtype":"미니 쇼츠","pattern":"단색","length":"미니","searchQueries":["베이지 미니 쇼츠","베이지 데님 쇼츠","베이지 핫팬츠"]}
+- 다른 카테고리 null
+- gender=female, gender_confidence=0.95, price_tier=budget
+
+[예시 C] cropped 셀카 (얼굴+이너만 보임, 외투/하의 안 보임):
+- top_inner: {"color":"화이트","subtype":"라운드티","fit":"베이직","pattern":"단색","length":"숏","searchQueries":["화이트 라운드티","흰 반팔티","흰 베이직티"]}
+- top_outer / outer / bottom / dress / shoes: null (안 보이는 항목 추측 금지)
+- accessory: 보이면 — 안경/목걸이 등
+- gender=female, gender_confidence=0.6, price_tier=budget
+
+[예시 D] 단일 토트백 close-up:
+- bag: {"color":"블랙","subtype":"토트백","fit":"라지","material":"가죽","pattern":"단색","searchQueries":["블랙 가죽 토트백","블랙 라지 토트백 여성","블랙 비즈니스 토트백"]}
+- 다른 카테고리 모두 null
+- gender=unisex, price_tier=premium (가죽 + 미니멀 디자인)
+
+[예시 E] 럭셔리 모델 화보 (로고 명확):
+- price_tier=luxury, price_tier_confidence=0.85, price_signals=["로고 명확","모델컷","고급 패브릭"]
+- price_range_estimate: {"min":300000,"max":2000000}
 
 ★ 출력 강제: 반드시 JSON 객체 하나로만 응답한다. 마크다운 헤더(##), 설명 문장, 코드 블록 모두 금지. 응답 첫 글자는 '{', 마지막 글자는 '}'.
 
@@ -347,6 +376,67 @@ async function searchNaver(
   return { products, total: data.total || 0, query };
 }
 
+// ─── Gemini 2-pass rerank (SESSION 16: 정확도 끌어올리기) ──────────────────
+// 목적: Naver 1차 검색 결과 중 attributes에 가장 일치하는 top N을 Gemini가 골라냄.
+// 입력: 카테고리 attributes(color/subtype/pattern/length 등) + 후보 N개 (title/price/brand)
+// 출력: top K 인덱스 배열. 실패 시 원본 순서 유지 (graceful fallback).
+async function geminiRerank(
+  apiKey: string,
+  categoryName: string,
+  attributes: Record<string, unknown>,
+  candidates: Array<{ title: string; price: number; brand?: string; mallName?: string }>,
+  topK = 10,
+): Promise<number[]> {
+  if (candidates.length <= topK) return candidates.map((_, i) => i);
+
+  const candidateList = candidates
+    .slice(0, 30) // 비용 제한: 상위 30개만
+    .map((c, i) => `${i}: "${c.title.slice(0, 80)}" / ${c.price.toLocaleString()}원${c.brand ? ` / ${c.brand}` : ''}`)
+    .join('\n');
+
+  const attrSummary = Object.entries(attributes)
+    .filter(([_, v]) => v != null && v !== '' && (Array.isArray(v) ? v.length > 0 : true))
+    .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`)
+    .join(' / ');
+
+  const prompt = `한국 패션 검색 결과 재순위. 사용자가 찾는 ${categoryName} 속성과 가장 일치하는 ${topK}개를 골라라.
+
+[목표 속성]
+${attrSummary}
+
+[후보 ${candidates.slice(0, 30).length}개]
+${candidateList}
+
+규칙:
+- 색상/subtype/pattern/length 일치도가 가장 높은 순으로
+- 가격이 price_range_estimate 안이면 가산점
+- 광고성 키워드(최저가/100%정품/역대급)는 동점 시 후순위
+- 정확히 ${topK}개 인덱스만 JSON 배열로 응답: [3, 7, 0, 12, ...]
+
+★ 출력: 인덱스 배열 하나만. 다른 텍스트 절대 금지.`;
+
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+    });
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    const arr = JSON.parse(text);
+    if (!Array.isArray(arr)) throw new Error('not array');
+    const valid = arr
+      .map((n) => Number(n))
+      .filter((n) => Number.isInteger(n) && n >= 0 && n < candidates.length)
+      .slice(0, topK);
+    console.log(`[geminiRerank] ${categoryName}: ${valid.length}/${topK} 인덱스 반환`);
+    return valid.length > 0 ? valid : candidates.slice(0, topK).map((_, i) => i);
+  } catch (err) {
+    console.warn(`[geminiRerank] ${categoryName} 실패, 원본 순서 유지:`, serializeError(err).message);
+    return candidates.slice(0, topK).map((_, i) => i);
+  }
+}
+
 // ─── Hono 앱 ──────────────────────────────────────────────────────────────────
 const app = new Hono<{ Bindings: Env }>();
 
@@ -402,35 +492,7 @@ app.post('/api/analyze', async (c) => {
     if (imageBase64.length > 14 * 1024 * 1024)
       return c.json({ message: '이미지가 너무 커요. 10MB 이하로 업로드해 주세요.' }, 400);
 
-    // Cloud Run v3 파이프라인 우선 시도
-    const fashionSearchUrl = c.env.FASHION_SEARCH_URL;
-    if (fashionSearchUrl) {
-      try {
-        const binary = atob(imageBase64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: mimeType });
-        const form = new FormData();
-        form.append('file', blob, 'image.jpg');
-
-        const upstream = await fetch(`${fashionSearchUrl}/api/search`, {
-          method: 'POST',
-          body: form,
-          signal: AbortSignal.timeout(90000),
-        });
-
-        if (upstream.ok) {
-          const data = await upstream.json() as Record<string, unknown>;
-          const imageHash = (data.image_hash as string) || '';
-          console.log('[/api/analyze] Cloud Run v3 success, tabs:', (data.tabs as unknown[])?.length ?? 0);
-          return c.json({ ...data, _source: 'v3', _imageHash: imageHash });
-        }
-        console.warn('[/api/analyze] Cloud Run upstream error', upstream.status, '→ Gemini fallback');
-      } catch (upstreamErr) {
-        console.warn('[/api/analyze] Cloud Run timeout/error, Gemini fallback:', serializeError(upstreamErr));
-      }
-    }
-
+    // SESSION 16: Cloud Run v3 path 제거. Gemini-only로 단순화.
     if (!c.env.GEMINI_API_KEY) {
       console.error('[/api/analyze] GEMINI_API_KEY is missing');
       return c.json({ message: 'GEMINI_API_KEY 환경변수가 설정되지 않았어요.' }, 500);
@@ -683,8 +745,26 @@ app.post('/api/search/categories', async (c) => {
           };
           const softScored = softScoreProducts(deduped, ctx).slice(0, 40);
           const totalMax = Math.max(...searchResults.filter(Boolean).map((r) => r!.total), 0);
-          console.log(`[/categories] ${category}: color="${info.color}" pattern="${info.pattern}" length="${info.length}" gender="${ctx.gender}" → ${softScored.length}개`);
-          return { category, keywords: info.keywords, products: softScored, total: totalMax, query: colorEnforcedQueries[0] };
+
+          // SESSION 16: 2-pass Gemini rerank (정확도 끌어올리기)
+          // softScore로 휴리스틱 정렬 → Gemini가 최종 top 10 골라냄
+          let finalProducts = softScored;
+          if (softScored.length > 10 && c.env.GEMINI_API_KEY) {
+            const attributes = {
+              color: info.color, subtype: info.keywords?.[1], pattern: info.pattern,
+              length: info.length, gender: outfit_meta?.gender, price_tier: outfit_meta?.price_tier,
+              price_range: outfit_meta?.price_range_estimate, keywords: info.keywords,
+            };
+            const rerankIdx = await geminiRerank(c.env.GEMINI_API_KEY, category, attributes, softScored, 10)
+              .catch(() => softScored.slice(0, 10).map((_, i) => i));
+            const picked = rerankIdx.map((i) => softScored[i]).filter(Boolean);
+            const pickedIds = new Set(picked.map((p) => p.id));
+            const rest = softScored.filter((p) => !pickedIds.has(p.id));
+            finalProducts = [...picked, ...rest].slice(0, 40);
+          }
+
+          console.log(`[/categories] ${category}: color="${info.color}" pattern="${info.pattern}" length="${info.length}" gender="${ctx.gender}" → ${finalProducts.length}개 (rerank: ${softScored.length > 10 ? 'ON' : 'OFF'})`);
+          return { category, keywords: info.keywords, products: finalProducts, total: totalMax, query: colorEnforcedQueries[0] };
         } catch (catErr) {
           console.error(`[/categories] ${category} 전체 실패:`, serializeError(catErr));
           return { category, keywords: info.keywords, products: [], total: 0, query: colorEnforcedQueries[0] };
@@ -706,58 +786,20 @@ app.post('/api/search/categories', async (c) => {
   }
 });
 
-// ─── POST /api/search-image — Phase 2/3 ML 유사 이미지 검색 ────────────────────
+// ─── POST /api/search-image — Naver fallback (SESSION 16: Cloud Run 제거) ────
 app.post('/api/search-image', async (c) => {
   console.log('[POST /api/search-image] request received');
-  const fashionSearchUrl = c.env.FASHION_SEARCH_URL;
-  if (!fashionSearchUrl) {
-    return c.json({ message: 'FASHION_SEARCH_URL 환경변수가 설정되지 않았어요.' }, 503);
-  }
-
-  let imageBase64: string;
-  let mimeType: string;
   let fallbackQuery: string;
   try {
-    const body = await c.req.json<{ imageBase64: string; mimeType?: string; query?: string }>();
-    imageBase64 = body.imageBase64 || '';
-    mimeType = body.mimeType || 'image/jpeg';
+    const body = await c.req.json<{ query?: string }>();
     fallbackQuery = body.query || '';
   } catch {
     return c.json({ message: '요청 본문 파싱 실패' }, 400);
   }
 
-  if (!imageBase64) return c.json({ message: 'imageBase64가 필요해요.' }, 400);
+  if (!fallbackQuery) return c.json({ message: '검색어가 필요해요.' }, 400);
 
-  // sort_by 쿼리파라미터 Cloud Run에 전달
-  const sortBy = new URL(c.req.url).searchParams.get('sort_by') || 'relevance';
-
-  // base64 → Blob → multipart/form-data (Cloud Run expects UploadFile)
   try {
-    const binary = atob(imageBase64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-    const blob = new Blob([bytes], { type: mimeType });
-    const form = new FormData();
-    form.append('file', blob, 'image.jpg');
-
-    const upstream = await fetch(
-      `${fashionSearchUrl}/api/search?sort_by=${encodeURIComponent(sortBy)}`,
-      { method: 'POST', body: form, signal: AbortSignal.timeout(90000) },
-    );
-
-    if (upstream.ok) {
-      const data = await upstream.json();
-      return c.json(data);
-    }
-
-    console.warn('[/api/search-image] upstream error', upstream.status, '→ naver fallback');
-  } catch (err) {
-    console.warn('[/api/search-image] upstream timeout/error, naver fallback:', serializeError(err));
-  }
-
-  // Naver fallback
-  try {
-    if (!fallbackQuery) return c.json({ message: '검색어가 필요해요.' }, 400);
     const result = await searchNaver(c.env.NAVER_CLIENT_ID, c.env.NAVER_CLIENT_SECRET, fallbackQuery);
     return c.json(result);
   } catch (err) {
@@ -766,24 +808,10 @@ app.post('/api/search-image', async (c) => {
   }
 });
 
-// ─── POST /api/click — 클릭 이벤트 Cloud Run 전달 ────────────────────────────
-app.post('/api/click', async (c) => {
-  const fashionSearchUrl = c.env.FASHION_SEARCH_URL;
-  if (!fashionSearchUrl) return c.json({ ok: true });
-
-  try {
-    const body = await c.req.json();
-    await fetch(`${fashionSearchUrl}/api/click`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5000),
-    });
-  } catch (err) {
-    console.warn('[/api/click] forward failed:', serializeError(err));
-  }
-
-  return c.json({ ok: true });
+// ─── POST /api/click — 클릭 이벤트 (SESSION 16: no-op, Cloud Run 제거) ─────
+app.post('/api/click', async () => {
+  // 클릭 로깅 endpoint는 유지하되 forwarding 제거. 추후 Cloudflare D1/R2로 자체 저장 가능.
+  return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
 });
 
 // 404
